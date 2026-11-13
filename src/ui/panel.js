@@ -187,7 +187,7 @@ export function createPanel({
     memoryTransferView?.dispose(); memoryTransferView = null;
     apiSettingsView?.dispose?.(); apiSettingsView = null;
     vectorSettingsView?.dispose(); vectorSettingsView = null;
-    promptsSettingsView?.dispose(); promptsSettingsView = null;
+    promptsSettingsView?.dispose?.(); promptsSettingsView = null;
     appearanceSettingsView?.dispose?.(); appearanceSettingsView = null;
     updatesSettingsView?.dispose(); updatesSettingsView = null;
     v3FoundationView.deactivate();
@@ -268,7 +268,6 @@ export function createPanel({
     if (focusSources) { settingsDrawerState.open('general'); settingsDrawerState.open('worldbook'); }
 
     const page = element('section', 'settings-page');
-    page.append(element('h2', '', '千千结设置'));
 
     // 总开关：standalone 主控，统管整个插件（含记忆自动提取）。
     const master = element('div', 'master-switch');
@@ -555,7 +554,7 @@ export function createPanel({
     activationEpoch += 1;
     apiSettingsView?.dispose?.(); apiSettingsView = null;
     vectorSettingsView?.dispose(); vectorSettingsView = null;
-    promptsSettingsView?.dispose(); promptsSettingsView = null;
+    promptsSettingsView?.dispose?.(); promptsSettingsView = null;
     appearanceSettingsView?.dispose?.(); appearanceSettingsView = null;
     updatesSettingsView?.dispose(); updatesSettingsView = null;
     v3FoundationView.deactivate();
