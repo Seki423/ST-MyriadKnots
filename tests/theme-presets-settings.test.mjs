@@ -55,9 +55,9 @@ class FakeDocument {
   createElement(tag) { return new FakeElement(tag,this); }
   runFrames() { const queued=[...this.frames.entries()];this.frames.clear();for(const [,callback] of queued)callback(); }
 }
-function setup(initialStore={schemaVersion:1,activePresetId:null,items:[]}) {
+function setup(initialStore={schemaVersion:1,activePresetId:null,items:[]},{confirmImpl,computed}={}) {
   const documentRef=new FakeDocument(),overlayRoot=new FakeElement('shadow-root',documentRef);
-  let writes=0,previews=0,restores=0,previewPalette={...palette};
+  let writes=0,previews=0,restores=0,previewPalette={...palette,...computed};
   const state={customThemeStore:initialStore};
   const settings={get:()=>state,update:patch=>{writes++;Object.assign(state,patch);}};
   const appearance={
@@ -65,7 +65,7 @@ function setup(initialStore={schemaVersion:1,activePresetId:null,items:[]}) {
     preview:()=>{previews++;previewPalette={...palette,paper:'#123456'};},
     restore:()=>{restores++;previewPalette={...palette};},apply(){},
   };
-  const component=createThemePresetsSettings({settings,documentRef,appearance,overlayRoot,confirmImpl:async()=>true});
+  const component=createThemePresetsSettings({settings,documentRef,appearance,overlayRoot,confirmImpl:confirmImpl?(options=>confirmImpl(options,state)):async()=>true});
   return {documentRef,overlayRoot,component,state,get writes(){return writes;},get previews(){return previews;},get restores(){return restores;}};
 }
 const findButton=(root,label)=>{
@@ -160,4 +160,30 @@ test('导入 UI 在读取内容前拒绝超大文件，且不写设置',async()=
   assert.equal(fixture.writes,0);
   const feedback=fixture.component.node.querySelectorAll('.qqj-theme-feedback')[0];
   assert.match(feedback.textContent,/过大/u);
+});
+
+test('删除确认期间主题库发生变化时，只删除目标主题而不覆盖期间的新增',async()=>{
+  const keep=makePreset({id:'keep',name:'Keep'}),target=makePreset({id:'target',name:'Target'}),late=makePreset({id:'late',name:'Late import'});
+  const fixture=setup({schemaVersion:1,activePresetId:'keep',items:[keep,target]},{
+    confirmImpl:async(_options,state)=>{state.customThemeStore={schemaVersion:1,activePresetId:'keep',items:[...state.customThemeStore.items,late]};return true;},
+  });
+  const targetCard=fixture.component.node.querySelectorAll('.qqj-theme-card')
+    .find(card=>card.querySelectorAll('.qqj-theme-name')[0].textContent==='Target');
+  findButton(targetCard,'删除').dispatch('click');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(fixture.state.customThemeStore.items.map(item=>item.id),['keep','late']);
+  assert.equal(fixture.state.customThemeStore.activePresetId,'keep');
+});
+
+test('保存草稿时主题校验失败会在编辑器内提示，而不是抛出未捕获异常',()=>{
+  // 已保存的主题缺少 crimson；编辑器用当前计算色补全，而这里的计算色不是静态 HEX，校验必然失败。
+  const partial={id:'partial',name:'缺字段',variables:{paper:'#ffffff'},createdAt:'',updatedAt:''};
+  const fixture=setup({schemaVersion:1,activePresetId:null,items:[partial]},{computed:{crimson:'rgb(1, 2, 3)'}});
+  findButton(fixture.component.node,'编辑').dispatch('click');
+  assert.equal(fixture.overlayRoot.children.length,1);
+  assert.doesNotThrow(()=>findButton(fixture.overlayRoot,'保存').dispatch('click'));
+  const feedback=fixture.overlayRoot.querySelectorAll('.qqj-theme-feedback')[0];
+  assert.match(feedback.textContent,/无法保存/u);
+  assert.equal(fixture.writes,0);
+  assert.equal(fixture.overlayRoot.children.length,1,'校验失败后编辑器保持打开，草稿不丢失');
 });

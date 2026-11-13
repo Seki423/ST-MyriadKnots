@@ -250,7 +250,8 @@ export function createAppearanceController({ host, root, settings, documentRef =
     if (!preset || typeof preset.id !== 'string' || !preset.variables) throw new TypeError('预览主题格式无效。');
     const base = savedValue(), store = normalizeCustomThemeStore(base.customThemeStore);
     const items = store.items.filter(item => item.id !== preset.id);
-    items.push({ ...preset, variables: { ...preset.variables } });
+    // 名称为空（用户正在清空输入框）的草稿会被 normalizeCustomThemeStore 丢弃，预览会闪回基础主题；预览只关心颜色，补一个占位名。
+    items.push({ ...preset, name: text(preset.name).slice(0, 80) || '预览', variables: { ...preset.variables } });
     previewValue = { ...base, customThemeStore: { schemaVersion: 1, activePresetId: preset.id, items } };
     return apply();
   };

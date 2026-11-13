@@ -179,3 +179,17 @@ test('normalizeCustomThemeStore 限制主题数量，防止异常数据撑大设
   assert.equal(store.items.length,MAX_CUSTOM_THEMES);
   assert.equal(store.activePresetId,null,'被截断的主题不能再作为激活主题');
 });
+
+test('预览草稿名称为空时仍显示草稿配色，不会闪回基础主题',()=>{
+  const properties={};
+  const host={setAttribute(){},style:{setProperty(name,value){properties[name]=value;}}};
+  const documentRef={createElement:()=>null};
+  const settings={get:()=>({appearanceTheme:'day',customThemeStore:{schemaVersion:1,activePresetId:null,items:[]}})};
+  const controller=createAppearanceController({host,root:{querySelector:()=>null},settings,documentRef,windowRef:{}});
+  assert.equal(properties['--paper'],'#f7f8fa','基础日间主题');
+  controller.preview({id:'draft',name:'   ',variables:{...palette,paper:'#123456'}});
+  assert.equal(properties['--paper'],'#123456','空名称草稿也应实时预览');
+  controller.restore();
+  assert.equal(properties['--paper'],'#f7f8fa','关闭预览后回到已保存外观');
+  controller.destroy();
+});

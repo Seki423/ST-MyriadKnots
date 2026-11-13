@@ -115,7 +115,9 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
     const saved=store(),target=saved.items.find(item=>item.id===id);if(!target)return;
     const okay=await confirmImpl({title:'删除自定义主题',body:'确定删除「'+target.name+'」吗？此操作无法撤销。',confirmText:'删除',cancelText:'取消',danger:true});
     if(!okay)return;
-    settings.update({customThemeStore:{...saved,activePresetId:saved.activePresetId===id?null:saved.activePresetId,items:saved.items.filter(item=>item.id!==id)}});
+    // 确认框是异步的：弹窗期间主题库可能已变化（如导入完成），必须基于最新库删除，不能覆盖旧快照。
+    const latest=store();if(!latest.items.some(item=>item.id===id))return;
+    settings.update({customThemeStore:{...latest,activePresetId:latest.activePresetId===id?null:latest.activePresetId,items:latest.items.filter(item=>item.id!==id)}});
     restoreAppearance();render();
   };
   const schedulePreview=()=>{
@@ -144,7 +146,9 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
     const name=cleanName(draft?.name);if(!name||name.length>80){feedback.textContent='请填写 1–80 个字符的主题名称。';return;}
     const saved=store(),collision=saved.items.find(item=>item.id!==editingId&&cleanName(item.name).toLocaleLowerCase()===name.toLocaleLowerCase());
     if(collision){feedback.textContent='已有同名主题，请换一个名称。';return;}
-    const now=new Date().toISOString(),candidate=validateCustomThemePreset({...draft,name,updatedAt:now,createdAt:draft.createdAt||now,variables:{...draft.variables}});
+    const now=new Date().toISOString();let candidate;
+    try{candidate=validateCustomThemePreset({...draft,name,updatedAt:now,createdAt:draft.createdAt||now,variables:{...draft.variables}});}
+    catch(error){feedback.textContent='无法保存：'+(error?.message??'主题内容无效。');return;}
     const items=saved.items.filter(item=>item.id!==candidate.id);items.push(candidate);
     settings.update({customThemeStore:{schemaVersion:1,activePresetId:applyAfterSave?candidate.id:(saved.activePresetId===candidate.id?candidate.id:saved.activePresetId),items}});
     closeEditor({restore:false});restoreAppearance();render();
