@@ -232,3 +232,18 @@ test('isValidThemeFieldValue 对三类字段使用各自规则',()=>{
   assert.equal(isValidThemeFieldValue('paper','var(--SmartThemeBlurTintColor, #f7f8fa)'),true);
   assert.equal(isValidThemeFieldValue('paper','url(https://evil.invalid/x)'),false);
 });
+
+test('颜色值校验器拒绝样式逃逸、外部资源与执行类载荷',()=>{
+  const payloads=[
+    '</style><script>alert(1)</script>','url(https://evil.invalid/a)','expression(alert(1))','red; background:url(x)',
+    '#fff;}body{display:none}','#fff/*x*/','var(--SmartThemeBodyColor, url(https://evil.invalid/a))',
+    'var(--SmartThemeBodyColor)','var(--other, #fff)','var(--SmartThemeBodyColor, red\\3b background:red)',
+    'color-mix(in srgb, url(x) 50%, #fff)','color-mix(in srgb, #fff 150%, #000)','rgb(1 2 3 / url(x))','rgb(1,2,3);',
+    'calc(1px + 2px)','env(safe-area-inset-top)','attr(data-x)','\\75rl(x)','javascript:alert(1)','#fff\n;color:red',
+    'var(--SmartThemeBodyColor, #fff) !important','var( --SmartThemeA , var(--SmartThemeA, #fff))',
+  ];
+  for(const payload of payloads){
+    assert.equal(isSafeCustomThemeValue(payload),false,'应拒绝：'+JSON.stringify(payload));
+    assert.throws(()=>validateCustomThemePreset(preset({paper:payload})),TypeError);
+  }
+});

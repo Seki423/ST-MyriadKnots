@@ -215,3 +215,22 @@ test('下载结果报告被跳过的不完整主题数量',()=>{
   assert.equal(result.exportedCount,1);
   assert.equal(result.skippedCount,1);
 });
+
+test('导入文件中的 __proto__ 等额外键不会污染原型，且整包或单项被拒绝',()=>{
+  const valid=makeTheme('valid');
+  const polluted=JSON.parse('{"format":"'+CUSTOM_THEME_EXPORT_FORMAT+'","schemaVersion":1,"exportedAt":"2026-11-13T03:00:00.000Z","items":[],"__proto__":{"polluted":true}}');
+  assert.throws(()=>importCustomThemesJson(JSON.stringify(polluted),emptyStore()),error=>error.code==='INVALID_PACKAGE');
+  const itemText=JSON.stringify(valid).replace(/^\{/u,'{"__proto__":{"polluted":true},');
+  const result=importCustomThemesJson('{"format":"'+CUSTOM_THEME_EXPORT_FORMAT+'","schemaVersion":1,"exportedAt":"2026-11-13T03:00:00.000Z","items":['+itemText+']}',emptyStore());
+  assert.equal(result.importedCount,0);assert.equal(result.skippedCount,1);
+  assert.equal({}.polluted,undefined);
+});
+
+test('导出内容只包含主题数据字段，不携带其他设置',()=>{
+  const theme=makeTheme('one','主题');
+  const exported=createCustomThemesExport({schemaVersion:1,activePresetId:'one',items:[theme],apiKey:'SECRET',extra:'x'});
+  const text=JSON.stringify(exported);
+  assert.equal(text.includes('SECRET'),false);
+  assert.deepEqual(Object.keys(exported),['format','schemaVersion','exportedAt','items']);
+  assert.deepEqual(Object.keys(exported.items[0]).sort(),['createdAt','id','name','updatedAt','variables']);
+});
