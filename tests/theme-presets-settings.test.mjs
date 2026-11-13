@@ -205,3 +205,13 @@ test('主题列表渲染只对已挂载列表做一次 DOM 替换，不逐卡追
   fixture.component.refresh();
   assert.equal(replaced,2);assert.equal(list.children.length,1,'空库显示一条提示');
 });
+
+test('带 alpha 的 8 位 HEX 在取色器中只显示颜色部分，不修改该项时保存后 alpha 保持不变',()=>{
+  const translucent=makePreset({id:'alpha',name:'Alpha',variables:{line:'#11223380'}});
+  const fixture=setup({schemaVersion:1,activePresetId:null,items:[translucent]});
+  findButton(fixture.component.node,'编辑').dispatch('click');
+  const line=fixture.overlayRoot.querySelectorAll('.qqj-theme-color-input')[CUSTOM_THEME_VARIABLES.indexOf('line')];
+  assert.equal(line.value,'#112233');
+  findButton(fixture.overlayRoot,'保存').dispatch('click');
+  assert.equal(fixture.state.customThemeStore.items[0].variables.line,'#11223380');
+});

@@ -15,7 +15,8 @@ const LABELS = Object.freeze({
 const isDynamic=value=>hasHostFollowingVariables(value?.variables);
 const own=(value,key)=>Object.prototype.hasOwnProperty.call(value,key);
 const cleanName=value=>String(value??'').normalize('NFKC').trim();
-const pickerHex=value=>/^#[\da-f]{6}$/iu.test(value??'')?value:'#ffffff';
+// 取色器只认 6 位 HEX；8 位 HEX 只截取颜色部分用于显示，草稿里的 alpha 在用户不改这一项时保持不变。
+const pickerHex=value=>{const match=/^#([\da-f]{6})(?:[\da-f]{2})?$/iu.exec(value??'');return match?'#'+match[1]:'#ffffff';};
 
 export function createThemePresetsSettings({settings,documentRef=globalThis.document,appearance,overlayRoot,confirmImpl=async()=>false,notifyImpl}={}) {
   if(!settings?.get||!settings?.update||!documentRef?.createElement||!appearance)throw new TypeError('自定义主题设置参数无效。');

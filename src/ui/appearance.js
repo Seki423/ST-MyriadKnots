@@ -157,8 +157,17 @@ function automaticPrimaryText({ host, documentRef, windowRef }) {
     if (typeof host.appendChild === 'function') host.appendChild(probe);
     else if (typeof host.append === 'function') host.append(probe);
     else return '#fff';
-    const parsed = cssColor(documentRef, text(windowRef.getComputedStyle(probe)?.color));
-    return parsed ? onPrimary(parsed) : '#fff';
+    const readColor = value => {
+      probe.style?.setProperty?.('color', value);
+      return cssColor(documentRef, text(windowRef.getComputedStyle(probe)?.color));
+    };
+    let accent = readColor('var(--knot)');
+    if (accent && accent.alpha < 1) {
+      // 半透明强调色实际显示的是它叠在卡片底色上的结果，按合成色计算对比度才可靠。
+      const base = readColor('var(--panel)');
+      if (base) accent = { rgb: accent.rgb.map((value, index) => Math.round(value * accent.alpha + base.rgb[index] * (1 - accent.alpha))) };
+    }
+    return accent ? onPrimary(accent) : '#fff';
   } catch {
     return '#fff';
   } finally {
@@ -255,7 +264,9 @@ export function createAppearanceController({ host, root, settings, documentRef =
   const restore = () => { previewValue = null; return apply(); };
   const getComputedPalette = () => {
     const computed = windowRef?.getComputedStyle?.(host);
-    const toHex = parsed => parsed?.rgb ? '#' + parsed.rgb.map(c => Math.round(c).toString(16).padStart(2, '0')).join('') : '';
+    const hex = value => Math.round(value).toString(16).padStart(2, '0');
+    // 半透明颜色保留 alpha（8 位 HEX），否则复制主题会把半透明色变成不透明色。
+    const toHex = parsed => parsed?.rgb ? '#' + parsed.rgb.map(hex).join('') + (parsed.alpha < 1 ? hex(Math.max(0, parsed.alpha) * 255) : '') : '';
     const result = {};
     for (const key of CUSTOM_THEME_VARIABLES) {
       const cssName = '--' + key.replace(/[A-Z]/gu, letter => '-' + letter.toLowerCase());

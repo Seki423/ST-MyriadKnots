@@ -247,3 +247,31 @@ test('颜色值校验器拒绝样式逃逸、外部资源与执行类载荷',()=
     assert.throws(()=>validateCustomThemePreset(preset({paper:payload})),TypeError);
   }
 });
+
+test('onPrimary auto 对半透明强调色按其叠在卡片底色上的合成色计算对比度',()=>{
+  const probe={color:'',style:{setProperty(name,value){if(name==='color')probe.color=value;}},remove(){if(this.parentNode)this.parentNode.removeChild(this);}};
+  const documentRef={documentElement:{},createElement:()=>probe};
+  const windowRef={
+    getComputedStyle:()=>({color:probe.color==='var(--panel)'?'rgb(0, 0, 0)':'rgba(255, 255, 255, 0.2)'}),
+    matchMedia:()=>({matches:true}),
+  };
+  const properties={};
+  const host={setAttribute(){},style:{setProperty(k,v){properties[k]=v;}},appendChild(node){node.parentNode=this;},removeChild(node){node.parentNode=null;}};
+  const active=preset({onPrimary:'auto',knot:'rgba(255, 255, 255, 0.2)'});
+  const settings={appearanceTheme:'day',customThemeStore:{schemaVersion:1,activePresetId:active.id,items:[active]}};
+  // 20% 白叠在黑色卡片上约为 #333，需要浅色文字；只看 RGB 会误判成白色强调色而选深色文字。
+  assert.equal(applyAppearance({host,documentRef,windowRef,settings}).palette.onPrimary,'#fff');
+  assert.equal(properties['--on-primary'],'#fff');
+});
+
+test('getComputedPalette 保留半透明颜色的 alpha（8 位 HEX），不透明颜色仍为 6 位',()=>{
+  const values={'--paper':'rgba(0, 0, 0, 0.5)','--ink':'#22282b'};
+  const host={setAttribute(){},style:{setProperty(){},getPropertyValue:name=>values[name]??''}};
+  const windowRef={getComputedStyle:()=>({getPropertyValue:name=>values[name]??''}),matchMedia:()=>({matches:true})};
+  const settings={get:()=>({appearanceTheme:'day',customThemeStore:{schemaVersion:1,activePresetId:null,items:[]}})};
+  const controller=createAppearanceController({host,root:{querySelector:()=>null},settings,documentRef:{createElement:()=>null},windowRef});
+  const computed=controller.getComputedPalette();
+  assert.equal(computed.paper,'#00000080');
+  assert.equal(computed.ink,'#22282b');
+  controller.destroy();
+});
