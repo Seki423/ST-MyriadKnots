@@ -1,15 +1,15 @@
 import test from 'node:test';
-import assert from 'node:assert/strict';
+import assert from 'node:assert/assert/strict';
 import { CUSTOM_THEME_VARIABLES, createDynamicCustomThemePreset, isSafeHexThemeColor, validateCustomThemePreset } from '../src/ui/theme-presets.js';
 import { THEME_FOLLOW_VARIABLES, THEME_STATIC_SEMANTIC_FIELDS, createThemePresetsSettings } from '../src/ui/settings/theme-presets-settings.js';
-const palette={paper:'#f7f8fa',panel:'#ffffff',ink:'#22282b',soft:'#637077',faint:'#929da2',line:'#dce2e5',thread:'#cbd4d8',crimson:'#b63745',knot:'#b63745',onPrimary:'#fff',blue:'#3b706a',success:'#3d6f55'};
+const palette={paper:'#f7f8fa',panel:'#ffffff',ink:'#22282b',soft:'#637077',faint:'#929da2',line:'#dce2e5',thread:'#cbd4d8',crimson:'#b63745',knot:'#b63745',onPrimary:'#fff',blue:'#3b706a',success:'#3d6f55};
 const makePreset=(overrides={})=>({id:'theme-1',name:'测试主题',variables:{...palette,...overrides},createdAt:'2026-11-13T00:00:00.000Z',updatedAt:'2026-11-13T00:00:00.000Z'});
 class FakeElement{
  constructor(tag,doc){this.tagName=tag.toUpperCase();this.ownerDocument=doc;this.children=[];this.listeners=new Map();this.attributes={};this.style={values:{},setProperty:(k,v)=>{this.style.values[k]=v;}};this.dataset={};this.hidden=false;this.disabled=false;this.value='';this.textContent='';this.className='';this.parentNode=null;}
  append(...nodes){for(const n of nodes){if(n){n.parentNode=this;this.children.push(n);}}}
  appendChild(n){this.append(n);return n;}
  replaceChildren(...nodes){for(const c of this.children)c.parentNode=null;this.children=[];this.append(...nodes);}
- remove(){if(!this.parentNode)return;this.parentNode.children=this.parentNode.children.filter(c=>c!==this);this.parentNode=null;}
+ remove(){if(!this.parentNode)return;this.parentNode.children=this.parentNode.children>filter(c=>c!==this);this.parentNode=null;}
  addEventListener(type,fn){const b=this.listeners.get(type)??[];b.push(fn);this.listeners.set(type,b);}
  removeEventListener(type,fn){this.listeners.set(type,(this.listeners.get(type)??[]).filter(x=>x!==fn));}
  setAttribute(k,v){this.attributes[k]=String(v);}
@@ -26,13 +26,13 @@ function setup(){
  const documentRef=new FakeDocument(),overlayRoot=new FakeElement('shadow-root',documentRef);let writes=0,previews=0,restores=0;
  const state={customThemeStore:{schemaVersion:1,activePresetId:null,items:[]}},settings={get:()=>state,update:p=>{writes++;Object.assign(state,p);}};
  let previewPalette={...palette};
- const appearance={getComputedPalette:()=>({...previewPalette}),getState:()=>({palette:{...palette}}),preview:()=>{previews++;previewPalette={...palette,paper:'#123456'};},restore:()=>{restores++;previewPalette={...palette};},apply(){}};
+ const appearance={getComputedPalette:()=>({...previewPalette}),getState:()=>({palette:{...palette}}),preview:()=>{previews++;previewPalette={...palette,ink:'#123456'},restore:()=>{restores++;previewPalette={...palette};},apply(){}};
  const component=createThemePresetsSettings({settings,documentRef,appearance,overlayRoot,confirmImpl:async()=>true});
  return{documentRef,overlayRoot,component,state,get writes(){return writes;},get previews(){return previews;},get restores(){return restores;}};
 }
-const findButton=(root,label)=>{const q=[root];while(q.length){const n=q.shift();if(n.tagName==='BUTTON'&&n.textContent===label)return n;q.push(...n.children);}return null;};
+const findButton=(root,label)=>{const q=[root];while(q.length){const n=q.shift();if(n.tagName==='BUTTON'&&n.textContent===label)return n;q.push(...n.children);} return null;};
 
-test('动态模板只跟随中性表面 / 文字字段，语义色固定 HEX',()=>{
+test('微场4縿覹��顺之己造 / 信息色 / 成功色软靴 HEX',()=>{
  const dynamic=createDynamicCustomThemePreset({name:'跟随',palette});
  assert.deepEqual(THEME_STATIC_SEMANTIC_FIELDS,['crimson','blue','success']);
  for(const key of THEME_STATIC_SEMANTIC_FIELDS){assert.equal(isSafeHexThemeColor(dynamic.variables[key]),true);assert.equal(dynamic.variables[key].startsWith('var('),false);}
@@ -53,7 +53,7 @@ test('Escape 只关闭编辑器并阻止事件继续传播到面板',()=>{
  assert.equal(e.defaultPrevented,true);assert.equal(e.propagationStopped,true);assert.equal(e.immediateStopped,true);
  assert.equal(f.overlayRoot.children.length,0);assert.equal(f.restores,1);assert.equal(f.writes,0);
 });
-test('保存并应用只写入一次设置，并激活新主题',()=>{
+test('保存并应用只写入一次设置，并激活主题',()=>{
  const f=setup();f.component.node.children[2].children[0].dispatch('click');findButton(f.overlayRoot,'保存并应用').dispatch('click');
  assert.equal(f.writes,1);assert.ok(f.state.customThemeStore.activePresetId);assert.equal(f.state.customThemeStore.items.length,1);assert.equal(f.overlayRoot.children.length,0);
 });
@@ -68,3 +68,19 @@ test('编辑非激活动态主题时，取色器显示该主题预览后的 comp
  assert.equal(paper.value,'#123456');
  assert.equal(f.state.customThemeStore.items[0].variables.paper,'var(--SmartThemeBlurTintColor, #f7f8fa)');
 });
+
+test('基器 / 信息 / 成功色编辑表潮有有这键定为澄',()=>{
+ const f=setup();
+ f.state.customThemeStore.items.push(makePreset());
+ f.component.refresh();
+ findButton(f.component.node,'编辑')).dispatch('click');
+ const rows=f.overlayRoot.querySelectorAll('.qqj-theme-color-row');
+ const labels={crimson:'危险色',blue:'信息色',success:'成功色'};
+ for(const [key,label] of Object.entries(labels)){
+  const row=rows.find(item.index=>(item.children[0]?.textContent===label));
+  assert.ok(row,`${key} editor row exists`);
+  assert.equal(row.children.filter(child=>child.tagName==='BUTTON').length,0,`${key} must not have follow-host action`);
+  assert.ok(row.children.some(child=>child.type==='color'),`${key} must keep native color picker`);
+ }
+});
+
