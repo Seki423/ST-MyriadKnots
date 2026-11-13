@@ -15,6 +15,16 @@ export const CUSTOM_THEME_VARIABLES = Object.freeze([
 ]);
 
 const VARIABLE_SET = new Set(CUSTOM_THEME_VARIABLES);
+
+// 12 个字段的“跟随宿主”映射在这里集中定义：动态主题模板、编辑器按钮、运行时检测都读这一份。
+// crimson / blue / success 永远是静态 HEX，onPrimary 只能是 auto 或静态颜色，因此都不在映射里。
+export const THEME_FOLLOW_VARIABLES = Object.freeze({
+  paper: '--SmartThemeBlurTintColor', panel: '--SmartThemeChatTintColor',
+  ink: '--SmartThemeBodyColor', soft: '--SmartThemeEmColor', faint: '--SmartThemeEmColor',
+  line: '--SmartThemeBorderColor', thread: '--SmartThemeBorderColor', knot: '--SmartThemeQuoteColor',
+});
+export const THEME_STATIC_SEMANTIC_FIELDS = Object.freeze(['crimson', 'blue', 'success']);
+const STATIC_SEMANTIC_SET = new Set(THEME_STATIC_SEMANTIC_FIELDS);
 const EMPTY_STORE = Object.freeze({
   schemaVersion: CUSTOM_THEME_SCHEMA_VERSION,
   activePresetId: null,
@@ -176,6 +186,25 @@ export function isSafeCustomThemeValue(value) {
   return validateColorExpression(value);
 }
 
+// 值依赖宿主主题变量（含嵌套在 color-mix 里的引用）。运行时据此决定宿主变化时是否需要重新解析。
+export function isHostFollowingValue(value) {
+  return typeof value === 'string' && /var\(\s*--SmartTheme/iu.test(value);
+}
+// 值本身就是一个直接的 var(--SmartTheme…, 回退色)，编辑器的“跟随宿主 / 改为静态”按钮据此切换。
+export function isDirectHostVariable(value) {
+  return typeof value === 'string' && /^var\(\s*--SmartTheme/iu.test(value);
+}
+export function hasHostFollowingVariables(variables) {
+  return Object.values(variables ?? {}).some(isHostFollowingValue);
+}
+
+/** 单个字段的取值规则；校验、规范化与运行时解析共用，避免三处各写一份。 */
+export function isValidThemeFieldValue(key, raw) {
+  if (key === 'onPrimary') return raw === 'auto' || isStaticColor(raw);
+  if (STATIC_SEMANTIC_SET.has(key)) return isSafeHexThemeColor(raw);
+  return validateColorExpression(raw);
+}
+
 export function isSafeStaticThemeColor(value) {
   return isStaticColor(value);
 }
@@ -215,10 +244,9 @@ export function validateCustomThemePreset(value, { existingIds = [] } = {}) {
   for (const key of CUSTOM_THEME_VARIABLES) {
     if (!own(value.variables, key)) throw new TypeError('自定义主题变量 ' + key + ' 缺失或颜色值无效。');
     const raw = value.variables[key];
-    const semanticHex = ['crimson', 'blue', 'success'].includes(key);
-    const valid = key === 'onPrimary' ? raw === 'auto' || isStaticColor(raw)
-      : semanticHex ? isSafeHexThemeColor(raw) : validateColorExpression(raw);
-    if (!valid) throw new TypeError(semanticHex ? '自定义主题变量 ' + key + ' 必须是静态 HEX 颜色。' : '自定义主题变量 ' + key + ' 缺失或颜色值无效。');
+    if (!isValidThemeFieldValue(key, raw)) {
+      throw new TypeError(STATIC_SEMANTIC_SET.has(key) ? '自定义主题变量 ' + key + ' 必须是静态 HEX 颜色。' : '自定义主题变量 ' + key + ' 缺失或颜色值无效。');
+    }
     variables[key] = raw.trim();
   }
   if (findThemeReferenceCycles(variables).size) throw new TypeError('自定义主题包含循环引用。');
@@ -247,10 +275,7 @@ export function normalizeCustomThemeStore(value) {
     for (const key of CUSTOM_THEME_VARIABLES) {
       if (!own(candidate.variables, key)) continue;
       const raw = candidate.variables[key];
-      const semanticHex = ['crimson', 'blue', 'success'].includes(key);
-      const valid = key === 'onPrimary' ? raw === 'auto' || isStaticColor(raw)
-        : semanticHex ? isSafeHexThemeColor(raw) : validateColorExpression(raw);
-      if (valid) variables[key] = raw.trim();
+      if (isValidThemeFieldValue(key, raw)) variables[key] = raw.trim();
     }
     for (const key of findThemeReferenceCycles(variables)) delete variables[key];
     items.push({
@@ -275,8 +300,7 @@ function staticVariablesFromPalette(palette) {
   for (const key of CUSTOM_THEME_VARIABLES) {
     const color = cleanText(palette[key]);
     if (key === 'onPrimary' && color === 'auto') { variables[key] = '#fff'; continue; }
-    const semanticHex = ['crimson', 'blue', 'success'].includes(key);
-    const valid = semanticHex ? isSafeHexThemeColor(color) : isStaticColor(color);
+    const valid = STATIC_SEMANTIC_SET.has(key) ? isSafeHexThemeColor(color) : isStaticColor(color);
     if (!valid) throw new TypeError('当前主题变量 ' + key + ' 不是可保存的静态颜色。');
     variables[key] = color;
   }
@@ -303,17 +327,9 @@ export function createStaticCustomThemePreset(options = {}) {
 
 export function createDynamicCustomThemePreset(options = {}) {
   const base = staticVariablesFromPalette(options.palette);
-  const variables = {
-    ...base,
-    paper: 'var(--SmartThemeBlurTintColor, ' + base.paper + ')',
-    panel: 'var(--SmartThemeChatTintColor, ' + base.panel + ')',
-    ink: 'var(--SmartThemeBodyColor, ' + base.ink + ')',
-    soft: 'var(--SmartThemeEmColor, ' + base.soft + ')',
-    faint: 'var(--SmartThemeEmColor, ' + base.faint + ')',
-    line: 'var(--SmartThemeBorderColor, ' + base.line + ')',
-    thread: 'var(--SmartThemeBorderColor, ' + base.thread + ')',
-    knot: 'var(--SmartThemeQuoteColor, ' + base.knot + ')',
-    onPrimary: 'auto',
-  };
+  const variables = { ...base, onPrimary: 'auto' };
+  for (const [key, hostVariable] of Object.entries(THEME_FOLLOW_VARIABLES)) {
+    variables[key] = 'var(' + hostVariable + ', ' + base[key] + ')';
+  }
   return makePreset({ ...options, variables });
 }

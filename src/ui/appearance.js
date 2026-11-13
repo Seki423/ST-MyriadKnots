@@ -1,5 +1,5 @@
 import { fixedFontScale, normalizeFontScale } from './font-scale.js';
-import { CUSTOM_THEME_VARIABLES, isSafeCustomThemeValue, isSafeStaticThemeColor, normalizeCustomThemeStore } from './theme-presets.js';
+import { CUSTOM_THEME_VARIABLES, hasHostFollowingVariables, isValidThemeFieldValue, normalizeCustomThemeStore } from './theme-presets.js';
 
 function text(value) { return typeof value === 'string' ? value.trim() : ''; }
 function sanitizeFamily(value) { return String(value ?? '').replace(/["\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim(); }
@@ -77,7 +77,7 @@ const backgroundColor = (documentRef, raw, fallback) => {
 function hasDynamicHostTheme(value) {
   const store = normalizeCustomThemeStore(value?.customThemeStore);
   const preset = store.items.find(item => item.id === store.activePresetId);
-  return Boolean(preset && Object.values(preset.variables).some(color => /var\(\s*--SmartTheme[A-Za-z\d_-]*/iu.test(color)));
+  return Boolean(preset && hasHostFollowingVariables(preset.variables));
 }
 
 function resolveCustomThemePalette(value, basePalette) {
@@ -87,10 +87,7 @@ function resolveCustomThemePalette(value, basePalette) {
   const palette = {};
   for (const key of CUSTOM_THEME_VARIABLES) {
     const candidate = preset.variables[key];
-    const valid = key === 'onPrimary'
-      ? candidate === 'auto' || isSafeStaticThemeColor(candidate)
-      : isSafeCustomThemeValue(candidate);
-    palette[key] = valid ? candidate : basePalette[key];
+    palette[key] = isValidThemeFieldValue(key, candidate) ? candidate : basePalette[key];
   }
   return palette;
 }

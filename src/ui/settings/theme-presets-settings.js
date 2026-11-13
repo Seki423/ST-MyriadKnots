@@ -1,22 +1,18 @@
 import {
-  CUSTOM_THEME_VARIABLES, createDynamicCustomThemePreset,
-  createStaticCustomThemePreset, normalizeCustomThemeStore, validateCustomThemePreset,
+  CUSTOM_THEME_VARIABLES, THEME_FOLLOW_VARIABLES, THEME_STATIC_SEMANTIC_FIELDS, createDynamicCustomThemePreset,
+  createStaticCustomThemePreset, hasHostFollowingVariables, isDirectHostVariable, normalizeCustomThemeStore, validateCustomThemePreset,
 } from '../theme-presets.js';
 import {
   MAX_THEME_IMPORT_BYTES, downloadCustomThemesFile, importCustomThemesJson,
 } from '../theme-transfer.js';
 
-export const THEME_FOLLOW_VARIABLES = Object.freeze({
-  paper: '--SmartThemeBlurTintColor', panel: '--SmartThemeChatTintColor',
-  ink: '--SmartThemeBodyColor', soft: '--SmartThemeEmColor', faint: '--SmartThemeEmColor',
-  line: '--SmartThemeBorderColor', thread: '--SmartThemeBorderColor', knot: '--SmartThemeQuoteColor',
-});
-export const THEME_STATIC_SEMANTIC_FIELDS = Object.freeze(['crimson', 'blue', 'success']);
+// 映射表集中定义在 theme-presets.js；这里仅为兼容原有导入路径而再导出。
+export { THEME_FOLLOW_VARIABLES, THEME_STATIC_SEMANTIC_FIELDS };
 const LABELS = Object.freeze({
   paper:'页面底色',panel:'卡片底色',ink:'正文文字',soft:'次级文字',faint:'弱化文字',line:'边框线',
   thread:'连接线',crimson:'危险色',knot:'主题强调色',onPrimary:'强调色上的文字',blue:'信息色',success:'成功色',
 });
-const isDynamic=value=>Object.values(value?.variables??{}).some(color=>/var\(\s*--SmartTheme/iu.test(color));
+const isDynamic=value=>hasHostFollowingVariables(value?.variables);
 const own=(value,key)=>Object.prototype.hasOwnProperty.call(value,key);
 const cleanName=value=>String(value??'').normalize('NFKC').trim();
 const pickerHex=value=>/^#[\da-f]{6}$/iu.test(value??'')?value:'#ffffff';
@@ -171,8 +167,8 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
       input.addEventListener('input',()=>{editedPickers.add(key);draft.variables[key]=input.value.toLowerCase();mode.textContent='静态';if(follow)follow.textContent='跟随宿主';schedulePreview();});
       row.append(label,input);
       if(own(THEME_FOLLOW_VARIABLES,key)){
-        follow=btn(/^var\(\s*--SmartTheme/iu.test(draft.variables[key]??'')?'改为静态':'跟随宿主','qqj-theme-follow',()=>{
-          if(/^var\(\s*--SmartTheme/iu.test(draft.variables[key]??'')){draft.variables[key]=input.value.toLowerCase();mode.textContent='静态';follow.textContent='跟随宿主';}
+        follow=btn(isDirectHostVariable(draft.variables[key])?'改为静态':'跟随宿主','qqj-theme-follow',()=>{
+          if(isDirectHostVariable(draft.variables[key])){draft.variables[key]=input.value.toLowerCase();mode.textContent='静态';follow.textContent='跟随宿主';}
           else{draft.variables[key]='var('+THEME_FOLLOW_VARIABLES[key]+', '+input.value.toLowerCase()+')';mode.textContent='跟随中';follow.textContent='改为静态';}
           schedulePreview();
         });row.append(follow);

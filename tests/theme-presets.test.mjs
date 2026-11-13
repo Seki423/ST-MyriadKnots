@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   CUSTOM_THEME_SCHEMA_VERSION, CUSTOM_THEME_VARIABLES, MAX_CUSTOM_THEMES, createDefaultCustomThemeStore,
   createDynamicCustomThemePreset, createStaticCustomThemePreset, isSafeCustomThemeValue, isSafeHexThemeColor,
-  normalizeCustomThemeStore, validateCustomThemePreset,
+  THEME_FOLLOW_VARIABLES, THEME_STATIC_SEMANTIC_FIELDS, hasHostFollowingVariables, isDirectHostVariable,
+  isHostFollowingValue, isValidThemeFieldValue, normalizeCustomThemeStore, validateCustomThemePreset,
 } from '../src/ui/theme-presets.js';
 import { applyAppearance, createAppearanceController, resolveAppearance } from '../src/ui/appearance.js';
 import { createSettingsStore } from '../src/settings.js';
@@ -192,4 +193,42 @@ test('预览草稿名称为空时仍显示草稿配色，不会闪回基础主�
   controller.restore();
   assert.equal(properties['--paper'],'#f7f8fa','关闭预览后回到已保存外观');
   controller.destroy();
+});
+
+test('12 个字段恰好被“跟随宿主 / 静态语义色 / onPrimary”三类划分，映射表只有一份定义',()=>{
+  const follow=Object.keys(THEME_FOLLOW_VARIABLES),semantic=[...THEME_STATIC_SEMANTIC_FIELDS];
+  assert.deepEqual([...follow,...semantic,'onPrimary'].sort(),[...CUSTOM_THEME_VARIABLES].sort());
+  assert.equal(new Set([...follow,...semantic,'onPrimary']).size,CUSTOM_THEME_VARIABLES.length,'三类字段互不重叠');
+  for(const hostVariable of Object.values(THEME_FOLLOW_VARIABLES))assert.match(hostVariable,/^--SmartTheme[A-Za-z]+$/u);
+});
+
+test('动态主题模板完全由集中映射表生成，并保留静态 fallback',()=>{
+  const dynamic=createDynamicCustomThemePreset({name:'Follow host',palette});
+  for(const [key,hostVariable] of Object.entries(THEME_FOLLOW_VARIABLES)){
+    assert.equal(dynamic.variables[key],'var('+hostVariable+', '+palette[key]+')');
+  }
+  assert.equal(dynamic.variables.onPrimary,'auto');
+  for(const key of THEME_STATIC_SEMANTIC_FIELDS)assert.equal(dynamic.variables[key],palette[key]);
+});
+
+test('跟随宿主检测：嵌套在 color-mix 中的引用也算依赖宿主，但只有直接 var() 才是“跟随中”按钮状态',()=>{
+  const direct='var(--SmartThemeBodyColor, #22282b)';
+  const nested='color-mix(in srgb, var(--SmartThemeBodyColor, #22282b) 50%, #ffffff)';
+  assert.equal(isHostFollowingValue(direct),true);assert.equal(isHostFollowingValue(nested),true);
+  assert.equal(isHostFollowingValue('#22282b'),false);assert.equal(isHostFollowingValue(undefined),false);
+  assert.equal(isDirectHostVariable(direct),true);assert.equal(isDirectHostVariable(nested),false);
+  assert.equal(hasHostFollowingVariables({...palette,ink:nested}),true);
+  assert.equal(hasHostFollowingVariables(palette),false);
+  assert.equal(hasHostFollowingVariables(undefined),false);
+});
+
+test('isValidThemeFieldValue 对三类字段使用各自规则',()=>{
+  assert.equal(isValidThemeFieldValue('onPrimary','auto'),true);
+  assert.equal(isValidThemeFieldValue('onPrimary','var(--SmartThemeBodyColor, #fff)'),false);
+  for(const key of THEME_STATIC_SEMANTIC_FIELDS){
+    assert.equal(isValidThemeFieldValue(key,'#b63745'),true);
+    assert.equal(isValidThemeFieldValue(key,'rgb(1, 2, 3)'),false,key+' 只接受静态 HEX');
+  }
+  assert.equal(isValidThemeFieldValue('paper','var(--SmartThemeBlurTintColor, #f7f8fa)'),true);
+  assert.equal(isValidThemeFieldValue('paper','url(https://evil.invalid/x)'),false);
 });
