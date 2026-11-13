@@ -78,7 +78,8 @@ test('非法字段和不安全 CSS 项目会被逐项跳过，不影响其他合
   const result=importCustomThemesJson(packageFor([valid,unknownVariable,unsafeCss,unsafeScript]),emptyStore());
   assert.equal(result.importedCount,1);
   assert.equal(result.skippedCount,3);
-  assert.deepEqual(result.customThemeStore.items,[valid]);
+  // 导入主题的 onPrimary 统一归一为 auto（阶段 1 兼容约定）。
+  assert.deepEqual(result.customThemeStore.items,[{...valid,variables:{...valid.variables,onPrimary:'auto'}}]);
   assert.equal(JSON.stringify(result.customThemeStore).includes('example.invalid'),false);
   assert.equal(JSON.stringify(result.customThemeStore).includes('alert(1)'),false);
 });

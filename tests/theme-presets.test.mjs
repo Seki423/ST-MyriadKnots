@@ -5,7 +5,7 @@ import {
   createDynamicCustomThemePreset, createStaticCustomThemePreset, isSafeCustomThemeValue, isSafeHexThemeColor,
   normalizeCustomThemeStore, validateCustomThemePreset,
 } from '../src/ui/theme-presets.js';
-import { applyAppearance, resolveAppearance } from '../src/ui/appearance.js';
+import { applyAppearance, createAppearanceController, resolveAppearance } from '../src/ui/appearance.js';
 import { createSettingsStore } from '../src/settings.js';
 
 const palette = {
