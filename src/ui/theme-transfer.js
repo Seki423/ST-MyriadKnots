@@ -1,10 +1,13 @@
 import {
   CUSTOM_THEME_SCHEMA_VERSION,
+  MAX_CUSTOM_THEMES,
   normalizeCustomThemeStore,
   validateCustomThemePreset,
 } from './theme-presets.js';
 
 export const CUSTOM_THEME_EXPORT_FORMAT = 'qqj-custom-themes';
+// 单个主题最多约 3 KB（12 个 ≤200 字符的颜色值），50 个主题远小于 1 MiB；超过即视为异常文件。
+export const MAX_THEME_IMPORT_BYTES = 1024 * 1024;
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const ownKeysAllowed = (value, allowed) => Object.keys(value).every(key => allowed.has(key));
@@ -59,6 +62,9 @@ function uniqueImportedId(sourceId, usedIds) {
  */
 export function importCustomThemesJson(jsonText, currentCustomThemeStore) {
   let payload;
+  if (typeof jsonText === 'string' && jsonText.length > MAX_THEME_IMPORT_BYTES) {
+    throw transferError('IMPORT_TOO_LARGE', '主题文件过大，无法导入。');
+  }
   try {
     if (typeof jsonText !== 'string') throw new TypeError('主题文件内容必须是文本。');
     payload = JSON.parse(jsonText);
@@ -81,9 +87,15 @@ export function importCustomThemesJson(jsonText, currentCustomThemeStore) {
   const current = normalizeCustomThemeStore(currentCustomThemeStore);
   const usedIds = new Set(current.items.map(item => item.id));
   const imported = [];
-  let skippedCount = 0;
+  let skippedCount = 0, limitReached = false;
 
-  for (const candidate of payload.items) {
+  for (const [index, candidate] of payload.items.entries()) {
+    if (current.items.length + imported.length >= MAX_CUSTOM_THEMES) {
+      // 主题库已满：其余项目不再校验，直接计入跳过，避免超大数组拖慢导入。
+      limitReached = true;
+      skippedCount += payload.items.length - index;
+      break;
+    }
     try {
       // Run the stage-1 validator for every item before accepting anything from it.
       const validated = validateCustomThemePreset(candidate);
@@ -114,6 +126,7 @@ export function importCustomThemesJson(jsonText, currentCustomThemeStore) {
     },
     importedCount: imported.length,
     skippedCount,
+    limitReached,
   };
 }
 

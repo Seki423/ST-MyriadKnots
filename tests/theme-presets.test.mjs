@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CUSTOM_THEME_SCHEMA_VERSION, CUSTOM_THEME_VARIABLES, createDefaultCustomThemeStore,
+  CUSTOM_THEME_SCHEMA_VERSION, CUSTOM_THEME_VARIABLES, MAX_CUSTOM_THEMES, createDefaultCustomThemeStore,
   createDynamicCustomThemePreset, createStaticCustomThemePreset, isSafeCustomThemeValue, isSafeHexThemeColor,
   normalizeCustomThemeStore, validateCustomThemePreset,
 } from '../src/ui/theme-presets.js';
@@ -171,4 +171,11 @@ test('onPrimary auto probe 每 document 创建一次、读取 computed knot 后�
   applyAppearance({host:second,documentRef,windowRef,settings});
   assert.equal(created,1);assert.equal(appended,2);assert.equal(removed,2);
   assert.equal(second.children.size,0);
+});
+
+test('normalizeCustomThemeStore 限制主题数量，防止异常数据撑大设置文件',()=>{
+  const items=Array.from({length:MAX_CUSTOM_THEMES+20},(_,index)=>({...preset(),id:'theme-'+index,name:'主题 '+index}));
+  const store=normalizeCustomThemeStore({schemaVersion:1,activePresetId:'theme-'+(MAX_CUSTOM_THEMES+5),items});
+  assert.equal(store.items.length,MAX_CUSTOM_THEMES);
+  assert.equal(store.activePresetId,null,'被截断的主题不能再作为激活主题');
 });

@@ -6,9 +6,10 @@ import {
   createCustomThemesFilename,
   downloadCustomThemesFile,
   importCustomThemesJson,
+  MAX_THEME_IMPORT_BYTES,
   stringifyCustomThemesExport,
 } from '../src/ui/theme-transfer.js';
-import { validateCustomThemePreset } from '../src/ui/theme-presets.js';
+import { MAX_CUSTOM_THEMES, validateCustomThemePreset } from '../src/ui/theme-presets.js';
 
 const makeTheme = (id, name = id, variables = {}) => validateCustomThemePreset({
   id, name,
@@ -168,4 +169,26 @@ test('浏览器导出使用 Blob 与 object URL 下载 JSON，并回收临时 UR
   assert.deepEqual(calls.revoked,[]);
   calls.scheduled();
   assert.deepEqual(calls.revoked,['blob:qqj-theme-test']);
+});
+
+test('超过大小上限的导入文本在解析前被拒绝',()=>{
+  const huge=' '.repeat(MAX_THEME_IMPORT_BYTES+1);
+  assert.throws(()=>importCustomThemesJson(huge,emptyStore()),error=>error.code==='IMPORT_TOO_LARGE');
+});
+
+test('导入不会让主题库超过上限，多余项目计入跳过且已有主题保持不变',()=>{
+  const existing=Array.from({length:MAX_CUSTOM_THEMES-2},(_,index)=>makeTheme('old-'+index));
+  const incoming=Array.from({length:5},(_,index)=>makeTheme('new-'+index));
+  const result=importCustomThemesJson(packageFor(incoming),{schemaVersion:1,activePresetId:'old-0',items:existing});
+  assert.equal(result.customThemeStore.items.length,MAX_CUSTOM_THEMES);
+  assert.equal(result.importedCount,2);
+  assert.equal(result.skippedCount,3);
+  assert.equal(result.limitReached,true);
+  assert.deepEqual(result.customThemeStore.items.slice(0,existing.length),existing);
+  assert.equal(result.customThemeStore.activePresetId,'old-0');
+});
+
+test('主题库未满时 limitReached 为 false',()=>{
+  const result=importCustomThemesJson(packageFor([makeTheme('a')]),emptyStore());
+  assert.equal(result.limitReached,false);
 });

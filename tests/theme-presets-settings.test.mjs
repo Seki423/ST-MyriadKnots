@@ -148,3 +148,16 @@ test('deleting the active preset clears its id and restores the base appearance'
   assert.equal(fixture.state.customThemeStore.activePresetId,null);
   assert.equal(fixture.state.customThemeStore.items.length,0);assert.equal(fixture.restores,1);
 });
+
+test('导入 UI 在读取内容前拒绝超大文件，且不写设置',async()=>{
+  const fixture=setup();
+  const input=fixture.component.node.querySelectorAll('.qqj-theme-file-input')[0];
+  let read=false;
+  input.files=[{size:5*1024*1024,text:async()=>{read=true;return '{}';}}];
+  input.dispatch('change');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(read,false,'超大文件不应被读入内存');
+  assert.equal(fixture.writes,0);
+  const feedback=fixture.component.node.querySelectorAll('.qqj-theme-feedback')[0];
+  assert.match(feedback.textContent,/过大/u);
+});

@@ -6,6 +6,8 @@
  * or executable CSS values from entering the theme pipeline.
  */
 export const CUSTOM_THEME_SCHEMA_VERSION = 1;
+// 主题库写入 extension_settings 并随酒馆设置整体保存；设置上限防止导入或损坏数据撑大设置文件。
+export const MAX_CUSTOM_THEMES = 50;
 
 export const CUSTOM_THEME_VARIABLES = Object.freeze([
   'paper', 'panel', 'ink', 'soft', 'faint', 'line', 'thread',
@@ -237,6 +239,7 @@ export function normalizeCustomThemeStore(value) {
   }
   const items = [], ids = new Set();
   for (const candidate of value.items) {
+    if (items.length >= MAX_CUSTOM_THEMES) break;
     if (!record(candidate) || !record(candidate.variables)) continue;
     const id = cleanText(candidate.id), name = cleanText(candidate.name);
     if (!id || id.length > 100 || !name || name.length > 80 || ids.has(id)) continue;

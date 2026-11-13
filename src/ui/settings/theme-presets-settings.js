@@ -3,7 +3,7 @@ import {
   createStaticCustomThemePreset, normalizeCustomThemeStore, validateCustomThemePreset,
 } from '../theme-presets.js';
 import {
-  downloadCustomThemesFile, importCustomThemesJson,
+  MAX_THEME_IMPORT_BYTES, downloadCustomThemesFile, importCustomThemesJson,
 } from '../theme-transfer.js';
 
 export const THEME_FOLLOW_VARIABLES = Object.freeze({
@@ -67,16 +67,20 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
     importButton.disabled=true;
     try{
       if(typeof file.text!=='function')throw new Error('当前浏览器无法读取所选文件。');
+      // 读入内存前先按文件大小拦截，避免异常大文件占满内存。
+      if(Number.isFinite(file.size)&&file.size>MAX_THEME_IMPORT_BYTES)throw Object.assign(new Error('文件过大'),{code:'IMPORT_TOO_LARGE'});
       const result=importCustomThemesJson(await file.text(),settings.get().customThemeStore);
       if(result.importedCount>0)settings.update({customThemeStore:result.customThemeStore});
       render();
-      await notify({title:'导入完成',body:'成功导入 '+result.importedCount+' 个主题，跳过 '+result.skippedCount+' 个不合法的主题。'});
+      await notify({title:'导入完成',body:'成功导入 '+result.importedCount+' 个主题，跳过 '+result.skippedCount+' 个不合法的主题。'+(result.limitReached?'主题数量已达上限，多余的主题未导入。':'')});
     }catch(error){
       const body=error?.code==='INVALID_JSON'
         ?'文件不是有效的 JSON。请检查文件内容后重试。'
         :error?.code==='INVALID_PACKAGE'
           ?'主题文件格式或版本不受支持，无法导入。'
-          :'读取主题文件失败，请确认文件可正常打开后重试。';
+          :error?.code==='IMPORT_TOO_LARGE'
+            ?'主题文件过大（上限 1 MB），无法导入。'
+            :'读取主题文件失败，请确认文件可正常打开后重试。';
       await notify({title:'导入失败',body});
     }finally{
       fileInput.value='';importButton.disabled=false;
