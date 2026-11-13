@@ -34,6 +34,7 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
   transfer.append(exportButton,importButton,el('span','qqj-theme-hint','导入 / 导出将在阶段 3 开放'));
   node.append(head,list,actions,transfer);
   let modal=null,draft=null,editingId=null,previousFocus=null,pendingFrame=null,feedback=null,disposed=false;
+  let pickerInputs=new Map(),editedPickers=new Set();
   const store=()=>normalizeCustomThemeStore(settings.get().customThemeStore);
   const palette=()=>appearance.getComputedPalette?.()??appearance.getState?.()?.palette??{};
   const restoreAppearance=()=>typeof appearance.restore==='function'?appearance.restore():appearance.apply?.();
@@ -48,7 +49,7 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
       for(const key of CUSTOM_THEME_VARIABLES){
         const chip=el('span','qqj-theme-swatch');chip.title=LABELS[key];
         chip.setAttribute('aria-label',LABELS[key]+'：'+(preset.variables[key]??'使用基础主题回退'));
-        chip.style.setProperty('background',key==='onPrimary'?(preset.variables.knot??'var(--knot)'):(preset.variables[key]??'var(--'+key+')'));
+        chip.style.setProperty('background-color',key==='onPrimary'?(preset.variables.knot??'var(--knot)'):(preset.variables[key]??'var(--'+key+')'));
         if(key==='onPrimary'){chip.textContent='Aa';chip.style.setProperty('color',preset.variables.onPrimary==='auto'?'var(--on-primary)':preset.variables.onPrimary);}
         swatches.append(chip);
       }
@@ -70,11 +71,20 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
   };
   const schedulePreview=()=>{
     if(!modal||!draft)return;if(pendingFrame!==null)caf(pendingFrame);
-    pendingFrame=raf(()=>{pendingFrame=null;if(!modal||!draft)return;try{appearance.preview?.({...draft,variables:{...draft.variables}});}catch(error){if(feedback)feedback.textContent='预览失败：'+(error?.message??'颜色值无法应用。');}});
+    pendingFrame=raf(()=>{
+      pendingFrame=null;if(!modal||!draft)return;
+      try{
+        appearance.preview?.({...draft,variables:{...draft.variables}});
+        const computed=appearance.getComputedPalette?.()??{};
+        for(const [key,input] of pickerInputs){
+          if(!editedPickers.has(key)&&computed[key])input.value=pickerHex(computed[key]);
+        }
+      }catch(error){if(feedback)feedback.textContent='预览失败：'+(error?.message??'颜色值无法应用。');}
+    });
   };
   const closeEditor=({restore=true}={})=>{
     if(pendingFrame!==null){caf(pendingFrame);pendingFrame=null;}if(!modal)return;
-    overlayRoot?.removeEventListener?.('keydown',onEditorKeydown,true);modal.remove?.();modal=null;draft=null;editingId=null;feedback=null;
+    overlayRoot?.removeEventListener?.('keydown',onEditorKeydown,true);modal.remove?.();modal=null;draft=null;editingId=null;feedback=null;pickerInputs.clear();editedPickers.clear();
     if(restore)restoreAppearance();previousFocus?.focus?.();previousFocus=null;
   };
   function onEditorKeydown(event){
@@ -102,9 +112,10 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
     const rows=el('div','qqj-theme-colors');
     for(const key of CUSTOM_THEME_VARIABLES){
       const row=el('div','qqj-theme-color-row'),label=el('label','qqj-theme-color-label',LABELS[key]),input=el('input','qqj-theme-color-input');
-      input.type='color';input.value=pickerHex(current[key]);input.setAttribute('aria-label',LABELS[key]+'颜色');
+      input.type='color';input.value=pickerHex(draft.variables[key]);input.setAttribute('aria-label',LABELS[key]+'颜色');
+      pickerInputs.set(key,input);
       const mode=el('span','qqj-theme-color-mode',isDynamic({variables:{[key]:draft.variables[key]}})?'跟随中':'静态');let follow=null;
-      input.addEventListener('input',()=>{draft.variables[key]=input.value.toLowerCase();mode.textContent='静态';if(follow)follow.textContent='跟随宿主';schedulePreview();});
+      input.addEventListener('input',()=>{editedPickers.add(key);draft.variables[key]=input.value.toLowerCase();mode.textContent='静态';if(follow)follow.textContent='跟随宿主';schedulePreview();});
       row.append(label,input);
       if(own(THEME_FOLLOW_VARIABLES,key)){
         follow=btn(/^var\(\s*--SmartTheme/iu.test(draft.variables[key]??'')?'改为静态':'跟随宿主','qqj-theme-follow',()=>{

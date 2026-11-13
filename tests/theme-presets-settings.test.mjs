@@ -25,7 +25,8 @@ class FakeDocument{
 function setup(){
  const documentRef=new FakeDocument(),overlayRoot=new FakeElement('shadow-root',documentRef);let writes=0,previews=0,restores=0;
  const state={customThemeStore:{schemaVersion:1,activePresetId:null,items:[]}},settings={get:()=>state,update:p=>{writes++;Object.assign(state,p);}};
- const appearance={getComputedPalette:()=>({...palette}),getState:()=>({palette:{...palette}}),preview:()=>{previews++;},restore:()=>{restores++;},apply(){}};
+ let previewPalette={...palette};
+ const appearance={getComputedPalette:()=>({...previewPalette}),getState:()=>({palette:{...palette}}),preview:()=>{previews++;previewPalette={...palette,paper:'#123456'};},restore:()=>{restores++;previewPalette={...palette};},apply(){}};
  const component=createThemePresetsSettings({settings,documentRef,appearance,overlayRoot,confirmImpl:async()=>true});
  return{documentRef,overlayRoot,component,state,get writes(){return writes;},get previews(){return previews;},get restores(){return restores;}};
 }
@@ -55,4 +56,15 @@ test('Escape 只关闭编辑器并阻止事件继续传播到面板',()=>{
 test('保存并应用只写入一次设置，并激活新主题',()=>{
  const f=setup();f.component.node.children[2].children[0].dispatch('click');findButton(f.overlayRoot,'保存并应用').dispatch('click');
  assert.equal(f.writes,1);assert.ok(f.state.customThemeStore.activePresetId);assert.equal(f.state.customThemeStore.items.length,1);assert.equal(f.overlayRoot.children.length,0);
+});
+
+test('编辑非激活动态主题时，取色器显示该主题预览后的 computed color',()=>{
+ const f=setup();
+ f.state.customThemeStore.items.push(makePreset({paper:'var(--SmartThemeBlurTintColor, #f7f8fa)'}));
+ f.component.refresh();
+ findButton(f.component.node,'编辑').dispatch('click');
+ f.documentRef.runFrames();
+ const paper=f.overlayRoot.querySelectorAll('.qqj-theme-color-input')[0];
+ assert.equal(paper.value,'#123456');
+ assert.equal(f.state.customThemeStore.items[0].variables.paper,'var(--SmartThemeBlurTintColor, #f7f8fa)');
 });
