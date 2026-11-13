@@ -129,7 +129,9 @@
 **AI 生成主题时，`onPrimary` 必须写成：**
 
 ```json
-"onPrimary": "auto"
+{
+  "onPrimary": "auto"
+}
 ```
 
 不要让 AI 根据主色猜测白字或黑字。使用 `auto` 后，千千结会根据实际强调色计算合适的前景文字颜色，以保持可读性。
