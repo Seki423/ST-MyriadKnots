@@ -109,6 +109,7 @@ export function createPanel({
   let apiSettingsView = null;
   let vectorSettingsView = null;
   let promptsSettingsView = null;
+  let appearanceSettingsView = null;
   let updatesSettingsView = null;
   let memoryTransferView = null;
   const scrollPositions = new Map();
@@ -187,6 +188,7 @@ export function createPanel({
     apiSettingsView?.dispose?.(); apiSettingsView = null;
     vectorSettingsView?.dispose(); vectorSettingsView = null;
     promptsSettingsView?.dispose(); promptsSettingsView = null;
+    appearanceSettingsView?.dispose?.(); appearanceSettingsView = null;
     updatesSettingsView?.dispose(); updatesSettingsView = null;
     v3FoundationView.deactivate();
     peopleProfilesView.deactivate();
@@ -348,8 +350,10 @@ export function createPanel({
     promptsSettingsView = prompts;
     const appearanceSettings = createAppearanceSettings({
       settings, documentRef, open: subOpen('appearance'), onToggle: subToggle('appearance'),
-      applyAppearance: () => appearance.apply(),
+      applyAppearance: () => appearance.apply(), appearance, overlayRoot: root,
+      confirmImpl: options => dialog?.confirm?.(options) ?? false,
     });
+    appearanceSettingsView = appearanceSettings;
     generalBody.append(api.node, vector.node);
     if (worldbook) generalBody.append(worldbook);
     generalBody.append(prompts.node, appearanceSettings.node);
@@ -551,6 +555,7 @@ export function createPanel({
     apiSettingsView?.dispose?.(); apiSettingsView = null;
     vectorSettingsView?.dispose(); vectorSettingsView = null;
     promptsSettingsView?.dispose(); promptsSettingsView = null;
+    appearanceSettingsView?.dispose?.(); appearanceSettingsView = null;
     updatesSettingsView?.dispose(); updatesSettingsView = null;
     v3FoundationView.deactivate();
     peopleProfilesView.deactivate();

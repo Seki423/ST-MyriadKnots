@@ -172,7 +172,7 @@ function automaticPrimaryText({ host, documentRef, windowRef }) {
   }
 }
 
-export function applyAppearance({ host, root, settings, documentRef = globalThis.document, windowRef = documentRef?.defaultView ?? globalThis, fetchImpl = globalThis.fetch } = {}) {
+export function applyAppearance({ host, root, settings, documentRef = globalThis.document, windowRef = documentRef?.defaultView ?? globalThis, fetchImpl = globalThis.fetch, applyFont = true } = {}) {
   const value = settings?.get?.() ?? settings ?? {};
   const appearance = resolveAppearance({ value, documentRef, windowRef });
   host?.setAttribute?.('data-qqj-theme', appearance.effectiveTheme);
@@ -194,6 +194,11 @@ export function applyAppearance({ host, root, settings, documentRef = globalThis
 
   const url = text(value.appearanceFontCssUrl);
   const cachedFamily = sanitizeFamily(value.appearanceFontFamily);
+  if (!applyFont) return {
+    theme: appearance.mode, mode: appearance.mode, effectiveTheme: appearance.effectiveTheme,
+    hasHostSignal: appearance.hasHostSignal, palette, scale, fixedScale,
+    family: cachedFamily, fontCssUrl: url, fontReady: Promise.resolve(),
+  };
   const setFont = family => host?.style?.setProperty?.('--qqj-custom-font', family ? `"${family}"` : 'system-ui');
 
   const old = root?.querySelector?.('link[data-qqj-custom-font]');
@@ -232,17 +237,55 @@ export function applyAppearance({ host, root, settings, documentRef = globalThis
 }
 
 export function createAppearanceController({ host, root, settings, documentRef = globalThis.document, windowRef = documentRef?.defaultView ?? globalThis, fetchImpl = globalThis.fetch, onChange } = {}) {
-  let destroyed = false, current = null;
-  const apply = () => { if (destroyed) return current; current = applyAppearance({ host, root, settings, documentRef, windowRef, fetchImpl }); onChange?.(current); return current; };
+  let destroyed = false, current = null, previewValue = null;
+  const savedValue = () => settings?.get?.() ?? settings ?? {};
+  const apply = () => {
+    if (destroyed) return current;
+    const source = previewValue ? { get: () => previewValue } : settings;
+    current = applyAppearance({ host, root, settings: source, documentRef, windowRef, fetchImpl, applyFont: !previewValue });
+    onChange?.(current);
+    return current;
+  };
+  const preview = preset => {
+    if (!preset || typeof preset.id !== 'string' || !preset.variables) throw new TypeError('预览主题格式无效。');
+    const base = savedValue(), store = normalizeCustomThemeStore(base.customThemeStore);
+    const items = store.items.filter(item => item.id !== preset.id);
+    items.push({ ...preset, variables: { ...preset.variables } });
+    previewValue = { ...base, customThemeStore: { schemaVersion: 1, activePresetId: preset.id, items } };
+    return apply();
+  };
+  const restore = () => { previewValue = null; return apply(); };
+  const getComputedPalette = () => {
+    const computed = windowRef?.getComputedStyle?.(host);
+    const toHex = parsed => parsed?.rgb ? '#' + parsed.rgb.map(c => Math.round(c).toString(16).padStart(2, '0')).join('') : '';
+    const result = {};
+    for (const key of CUSTOM_THEME_VARIABLES) {
+      const cssName = '--' + key.replace(/[A-Z]/gu, letter => '-' + letter.toLowerCase());
+      const raw = text(computed?.getPropertyValue?.(cssName)) || text(host?.style?.getPropertyValue?.(cssName)) || text(current?.palette?.[key]);
+      const parsed = cssColor(documentRef, raw) ?? cssColor(documentRef, current?.palette?.[key]);
+      result[key] = toHex(parsed) || '#ffffff';
+    }
+    return result;
+  };
   const Observer = windowRef?.MutationObserver ?? globalThis.MutationObserver;
   const observer = typeof Observer === 'function' && documentRef?.documentElement ? new Observer(() => {
-    const value = settings?.get?.() ?? settings ?? {};
+    const value = previewValue ?? savedValue();
     if (value.appearanceTheme === 'auto' || hasDynamicHostTheme(value)) apply();
   }) : null;
   observer?.observe?.(documentRef.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
   const media = windowRef?.matchMedia?.('(prefers-color-scheme: light)');
-  const onSystem = () => { const value = settings?.get?.() ?? settings ?? {}; if (value.appearanceTheme === 'auto' && !resolveAppearance({ value, documentRef, windowRef }).hasHostSignal) apply(); };
+  const onSystem = () => {
+    const value = previewValue ?? savedValue();
+    if (value.appearanceTheme === 'auto' && !resolveAppearance({ value, documentRef, windowRef }).hasHostSignal) apply();
+  };
   media?.addEventListener?.('change', onSystem);
   apply();
-  return Object.freeze({ apply, getState: () => current, destroy() { destroyed = true; observer?.disconnect?.(); media?.removeEventListener?.('change', onSystem); } });
+  return Object.freeze({
+    apply, preview, restore, getComputedPalette, getState: () => current,
+    destroy() {
+      if (destroyed) return;
+      previewValue = null; destroyed = true;
+      observer?.disconnect?.(); media?.removeEventListener?.('change', onSystem);
+    },
+  });
 }

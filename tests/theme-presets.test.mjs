@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CUSTOM_THEME_SCHEMA_VERSION, CUSTOM_THEME_VARIABLES, createDefaultCustomThemeStore,
-  createDynamicCustomThemePreset, createStaticCustomThemePreset, isSafeCustomThemeValue,
+  createDynamicCustomThemePreset, createStaticCustomThemePreset, isSafeCustomThemeValue, isSafeHexThemeColor,
   normalizeCustomThemeStore, validateCustomThemePreset,
 } from '../src/ui/theme-presets.js';
 import { applyAppearance, resolveAppearance } from '../src/ui/appearance.js';
@@ -74,10 +74,16 @@ test('静态模板与动态跟随模板生成正确值', () => {
   assert.equal(dynamic.variables.panel,'var(--SmartThemeChatTintColor, #ffffff)');
   assert.equal(dynamic.variables.ink,'var(--SmartThemeBodyColor, #22282b)');
   assert.equal(dynamic.variables.soft,'var(--SmartThemeEmColor, #637077)');
+  assert.equal(dynamic.variables.faint,'var(--SmartThemeEmColor, #929da2)');
   assert.equal(dynamic.variables.line,'var(--SmartThemeBorderColor, #dce2e5)');
+  assert.equal(dynamic.variables.thread,'var(--SmartThemeBorderColor, #cbd4d8)');
   assert.equal(dynamic.variables.knot,'var(--SmartThemeQuoteColor, #b63745)');
   assert.equal(dynamic.variables.onPrimary,'auto');
-  for(const key of ['faint','thread','crimson','blue','success']) assert.equal(dynamic.variables[key],palette[key]);
+  for(const key of ['crimson','blue','success']) {
+    assert.equal(dynamic.variables[key],palette[key]);
+    assert.equal(isSafeHexThemeColor(dynamic.variables[key]),true);
+    assert.throws(()=>validateCustomThemePreset(preset({[key]:'var(--SmartThemeQuoteColor, #b63745)'})),/静态 HEX/u);
+  }
 });
 
 test('settings 复用 extension_settings 持久化且兼容没有新字段的旧配置', () => {

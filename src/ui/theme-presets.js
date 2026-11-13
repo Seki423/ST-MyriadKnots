@@ -178,6 +178,10 @@ export function isSafeStaticThemeColor(value) {
   return isStaticColor(value);
 }
 
+export function isSafeHexThemeColor(value) {
+  return typeof value === 'string' && HEX_COLOR.test(value.trim());
+}
+
 function normalizeTimestamp(value) {
   const timestamp = cleanText(value);
   return timestamp && Number.isFinite(Date.parse(timestamp)) ? new Date(timestamp).toISOString() : '';
@@ -209,8 +213,10 @@ export function validateCustomThemePreset(value, { existingIds = [] } = {}) {
   for (const key of CUSTOM_THEME_VARIABLES) {
     if (!own(value.variables, key)) throw new TypeError('自定义主题变量 ' + key + ' 缺失或颜色值无效。');
     const raw = value.variables[key];
-    const valid = key === 'onPrimary' ? raw === 'auto' || isStaticColor(raw) : validateColorExpression(raw);
-    if (!valid) throw new TypeError('自定义主题变量 ' + key + ' 缺失或颜色值无效。');
+    const semanticHex = ['crimson', 'blue', 'success'].includes(key);
+    const valid = key === 'onPrimary' ? raw === 'auto' || isStaticColor(raw)
+      : semanticHex ? isSafeHexThemeColor(raw) : validateColorExpression(raw);
+    if (!valid) throw new TypeError(semanticHex ? '自定义主题变量 ' + key + ' 必须是静态 HEX 颜色。' : '自定义主题变量 ' + key + ' 缺失或颜色值无效。');
     variables[key] = raw.trim();
   }
   if (findThemeReferenceCycles(variables).size) throw new TypeError('自定义主题包含循环引用。');
@@ -238,7 +244,9 @@ export function normalizeCustomThemeStore(value) {
     for (const key of CUSTOM_THEME_VARIABLES) {
       if (!own(candidate.variables, key)) continue;
       const raw = candidate.variables[key];
-      const valid = key === 'onPrimary' ? raw === 'auto' || isStaticColor(raw) : validateColorExpression(raw);
+      const semanticHex = ['crimson', 'blue', 'success'].includes(key);
+      const valid = key === 'onPrimary' ? raw === 'auto' || isStaticColor(raw)
+        : semanticHex ? isSafeHexThemeColor(raw) : validateColorExpression(raw);
       if (valid) variables[key] = raw.trim();
     }
     for (const key of findThemeReferenceCycles(variables)) delete variables[key];
@@ -264,7 +272,9 @@ function staticVariablesFromPalette(palette) {
   for (const key of CUSTOM_THEME_VARIABLES) {
     const color = cleanText(palette[key]);
     if (key === 'onPrimary' && color === 'auto') { variables[key] = '#fff'; continue; }
-    if (!isStaticColor(color)) throw new TypeError('当前主题变量 ' + key + ' 不是可保存的静态颜色。');
+    const semanticHex = ['crimson', 'blue', 'success'].includes(key);
+    const valid = semanticHex ? isSafeHexThemeColor(color) : isStaticColor(color);
+    if (!valid) throw new TypeError('当前主题变量 ' + key + ' 不是可保存的静态颜色。');
     variables[key] = color;
   }
   return variables;
@@ -296,7 +306,9 @@ export function createDynamicCustomThemePreset(options = {}) {
     panel: 'var(--SmartThemeChatTintColor, ' + base.panel + ')',
     ink: 'var(--SmartThemeBodyColor, ' + base.ink + ')',
     soft: 'var(--SmartThemeEmColor, ' + base.soft + ')',
+    faint: 'var(--SmartThemeEmColor, ' + base.faint + ')',
     line: 'var(--SmartThemeBorderColor, ' + base.line + ')',
+    thread: 'var(--SmartThemeBorderColor, ' + base.thread + ')',
     knot: 'var(--SmartThemeQuoteColor, ' + base.knot + ')',
     onPrimary: 'auto',
   };
