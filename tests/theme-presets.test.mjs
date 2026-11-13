@@ -106,6 +106,45 @@ test('custom 主题逐字段采用 palette，无效字段回退对应 day/night 
   assert.equal(night.palette.faint,'#6c7c81');
 });
 
+test('日间/夜间基础模式下动态 SmartTheme 引用变化会重新计算 onPrimary', () => {
+  let observerCallback = null, applied = 0;
+  class Observer {
+    constructor(callback) { observerCallback = callback; }
+    observe() {}
+    disconnect() {}
+  }
+  const documentRef = { documentElement: {}, createElement: () => ({ style: { setProperty() {} }, remove() {} }) };
+  const windowRef = {
+    MutationObserver: Observer,
+    getComputedStyle: node => node === documentRef.documentElement
+      ? { getPropertyValue: () => '' }
+      : { color: applied === 0 ? '#ffffff' : '#22282b' },
+    matchMedia: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }),
+  };
+  const active = preset({ knot: 'var(--SmartThemeQuoteColor, #b63745)', onPrimary: 'auto' });
+  const settings = {
+    get: () => ({
+      appearanceTheme: 'day',
+      customThemeStore: { schemaVersion: 1, activePresetId: active.id, items: [active] },
+    }),
+  };
+  const properties = {};
+  const host = {
+    setAttribute() {},
+    style: { setProperty(name, value) { properties[name] = value; } },
+    appendChild(node) { node.parentNode = this; },
+    removeChild(node) { node.parentNode = null; },
+  };
+  const controller = createAppearanceController({
+    host, root: { querySelector: () => null }, settings, documentRef, windowRef,
+    onChange: () => { applied += 1; },
+  });
+  const before = applied;
+  observerCallback();
+  assert.equal(applied, before + 1, 'manual day mode with SmartTheme var must re-apply on host root mutation');
+  controller.destroy();
+});
+
 test('onPrimary auto probe 每 document 创建一次、读取 computed knot 后移除', () => {
   let created=0,appended=0,removed=0;
   const probe={style:{setProperty(){}},remove(){if(this.parentNode)this.parentNode.removeChild(this);}};

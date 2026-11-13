@@ -74,6 +74,12 @@ const backgroundColor = (documentRef, raw, fallback) => {
   return `rgb(${foreground.rgb.map((value, index) => Math.round(value * foreground.alpha + base.rgb[index] * (1 - foreground.alpha))).join(', ')})`;
 };
 
+function hasDynamicHostTheme(value) {
+  const store = normalizeCustomThemeStore(value?.customThemeStore);
+  const preset = store.items.find(item => item.id === store.activePresetId);
+  return Boolean(preset && Object.values(preset.variables).some(color => /var\(\s*--SmartTheme[A-Za-z\d_-]*/iu.test(color)));
+}
+
 function resolveCustomThemePalette(value, basePalette) {
   const store = normalizeCustomThemeStore(value?.customThemeStore);
   const preset = store.items.find(item => item.id === store.activePresetId);
@@ -229,7 +235,10 @@ export function createAppearanceController({ host, root, settings, documentRef =
   let destroyed = false, current = null;
   const apply = () => { if (destroyed) return current; current = applyAppearance({ host, root, settings, documentRef, windowRef, fetchImpl }); onChange?.(current); return current; };
   const Observer = windowRef?.MutationObserver ?? globalThis.MutationObserver;
-  const observer = typeof Observer === 'function' && documentRef?.documentElement ? new Observer(() => { if ((settings?.get?.() ?? settings)?.appearanceTheme === 'auto') apply(); }) : null;
+  const observer = typeof Observer === 'function' && documentRef?.documentElement ? new Observer(() => {
+    const value = settings?.get?.() ?? settings ?? {};
+    if (value.appearanceTheme === 'auto' || hasDynamicHostTheme(value)) apply();
+  }) : null;
   observer?.observe?.(documentRef.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
   const media = windowRef?.matchMedia?.('(prefers-color-scheme: light)');
   const onSystem = () => { const value = settings?.get?.() ?? settings ?? {}; if (value.appearanceTheme === 'auto' && !resolveAppearance({ value, documentRef, windowRef }).hasHostSignal) apply(); };
