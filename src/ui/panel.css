@@ -262,3 +262,7 @@
 .qqj-theme-preview-success{background:color-mix(in srgb,var(--success) 10%,var(--panel));color:var(--success)}.qqj-theme-preview-info{background:color-mix(in srgb,var(--blue) 10%,var(--panel));color:var(--blue)}
 .qqj-theme-feedback{margin:0;color:var(--crimson);font-size:var(--qqj-font-caption)}.qqj-theme-editor-footer{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:7px;padding:11px 15px;border-top:1px solid var(--line);background:var(--panel)}
 @media(max-width:600px){.qqj-theme-colors{grid-template-columns:minmax(0,1fr)}.qqj-theme-editor{max-height:94dvh}.qqj-theme-editor-header,.qqj-theme-editor-body,.qqj-theme-editor-footer{padding-inline:11px}.qqj-theme-swatches{grid-template-columns:repeat(6,minmax(0,1fr))}}
+
+
+/* 隐藏原生文件选择器，由主题管理器按钮触发。 */
+.qqj-theme-file-input{display:none!important}

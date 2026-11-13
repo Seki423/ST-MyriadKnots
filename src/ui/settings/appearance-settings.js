@@ -3,7 +3,7 @@ import { createInlineSelect } from '../inline-select.js';
 import { createThemePresetsSettings } from './theme-presets-settings.js';
 
 // 外观设置 change 即存并即时应用；楼层卡片开关只控制显示。
-export function createAppearanceSettings({ settings, documentRef = globalThis.document, open = false, onToggle, applyAppearance, appearance, overlayRoot, confirmImpl } = {}) {
+export function createAppearanceSettings({ settings, documentRef = globalThis.document, open = false, onToggle, applyAppearance, appearance, overlayRoot, confirmImpl, notifyImpl } = {}) {
   const { element, field, subDrawer } = createSettingsKit(documentRef);
   const { drawer, body } = subDrawer({ title: '外观', id: 'qqj-settings-appearance', open, onToggle });
   const current = settings.get();
@@ -40,7 +40,7 @@ export function createAppearanceSettings({ settings, documentRef = globalThis.do
     row.append(input, element('span', '', title)); body.append(row);
   }
   body.append(element('p', 'settings-hint', '控制“本轮召回”和“第几个结”的显示，所有聊天立即生效；隐藏不影响摘要、人物分析或注入。'));
-  const themePresets = createThemePresetsSettings({ settings, documentRef, appearance, overlayRoot, confirmImpl });
+  const themePresets = createThemePresetsSettings({ settings, documentRef, appearance, overlayRoot, confirmImpl, notifyImpl });
   body.append(themePresets.node);
   return { node: drawer, dispose: themePresets.dispose };
 }

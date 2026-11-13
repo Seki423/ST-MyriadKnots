@@ -352,6 +352,7 @@ export function createPanel({
       settings, documentRef, open: subOpen('appearance'), onToggle: subToggle('appearance'),
       applyAppearance: () => appearance.apply(), appearance, overlayRoot: root,
       confirmImpl: options => dialog?.confirm?.(options) ?? false,
+      notifyImpl: options => dialog?.info?.(options),
     });
     appearanceSettingsView = appearanceSettings;
     generalBody.append(api.node, vector.node);

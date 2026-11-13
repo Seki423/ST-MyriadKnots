@@ -2,6 +2,9 @@ import {
   CUSTOM_THEME_VARIABLES, createDynamicCustomThemePreset,
   createStaticCustomThemePreset, normalizeCustomThemeStore, validateCustomThemePreset,
 } from '../theme-presets.js';
+import {
+  createCustomThemesFilename, importCustomThemesJson, stringifyCustomThemesExport,
+} from '../theme-transfer.js';
 
 export const THEME_FOLLOW_VARIABLES = Object.freeze({
   paper: '--SmartThemeBlurTintColor', panel: '--SmartThemeChatTintColor',
@@ -18,7 +21,7 @@ const own=(value,key)=>Object.prototype.hasOwnProperty.call(value,key);
 const cleanName=value=>String(value??'').normalize('NFKC').trim();
 const pickerHex=value=>/^#[\da-f]{6}$/iu.test(value??'')?value:'#ffffff';
 
-export function createThemePresetsSettings({settings,documentRef=globalThis.document,appearance,overlayRoot,confirmImpl=async()=>false}={}) {
+export function createThemePresetsSettings({settings,documentRef=globalThis.document,appearance,overlayRoot,confirmImpl=async()=>false,notifyImpl}={}) {
   if(!settings?.get||!settings?.update||!documentRef?.createElement||!appearance)throw new TypeError('自定义主题设置参数无效。');
   const win=documentRef.defaultView??globalThis;
   const raf=win.requestAnimationFrame?.bind(win)??(callback=>{callback();return 0;});
@@ -29,15 +32,66 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
   head.append(el('h3','','自定义主题'),el('p','qqj-theme-hint','管理自己的配色方案；应用主题不会改动酒馆的日间 / 夜间 / 跟随模式。'));
   const list=el('div','qqj-theme-list'),actions=el('div','qqj-theme-actions'),transfer=el('div','qqj-theme-transfer');
   actions.append(btn('从当前主题复制','secondary-action',()=>openNew(false)),btn('从宿主主题复制','secondary-action',()=>openNew(true)));
-  const exportButton=btn('导出全部主题','secondary-action',()=>{}),importButton=btn('导入主题','secondary-action',()=>{});
-  exportButton.disabled=importButton.disabled=true;exportButton.title=importButton.title='阶段 3 开放';
-  transfer.append(exportButton,importButton,el('span','qqj-theme-hint','导入 / 导出将在阶段 3 开放'));
-  node.append(head,list,actions,transfer);
+  const exportButton=btn('导出全部主题','secondary-action',()=>{void exportThemes();});
+  const importButton=btn('导入主题','secondary-action',()=>{fileInput.value='';fileInput.click();});
+  const fileInput=el('input','qqj-theme-file-input');fileInput.type='file';fileInput.accept='.json';fileInput.hidden=true;
+  fileInput.setAttribute('aria-label','选择自定义主题 JSON 文件');
+  const transferHint=el('span','qqj-theme-hint','可将全部自定义主题导出为 JSON；导入后需手动应用主题。');
+  transfer.append(exportButton,importButton,fileInput,transferHint);
+  const transferFeedback=el('p','qqj-theme-feedback');transferFeedback.setAttribute('role','status');
+  node.append(head,list,actions,transfer,transferFeedback);
   let modal=null,draft=null,editingId=null,previousFocus=null,pendingFrame=null,feedback=null,disposed=false;
   let pickerInputs=new Map(),editedPickers=new Set();
   const store=()=>normalizeCustomThemeStore(settings.get().customThemeStore);
   const palette=()=>appearance.getComputedPalette?.()??appearance.getState?.()?.palette??{};
   const restoreAppearance=()=>typeof appearance.restore==='function'?appearance.restore():appearance.apply?.();
+  const notify=async({title,body})=>{
+    if(typeof notifyImpl==='function'){
+      try{await notifyImpl({title,body,confirmText:'知道了'});return;}
+      catch{/* fall through to the inline status message */}
+    }
+    transferFeedback.textContent=title+'：'+body;
+  };
+  const exportThemes=async()=>{
+    let objectUrl='';
+    try{
+      const now=new Date(),urlApi=win.URL??globalThis.URL,BlobCtor=win.Blob??globalThis.Blob;
+      if(typeof BlobCtor!=='function'||typeof urlApi?.createObjectURL!=='function')throw new Error('当前浏览器不支持文件下载。');
+      const content=stringifyCustomThemesExport(settings.get().customThemeStore,{now});
+      const blob=new BlobCtor([content],{type:'application/json;charset=utf-8'});
+      objectUrl=urlApi.createObjectURL(blob);
+      const link=el('a');link.href=objectUrl;link.download=createCustomThemesFilename(now);link.hidden=true;
+      documentRef.body?.appendChild?.(link);
+      try{link.click();}finally{link.remove?.();}
+      const revoke=()=>{try{urlApi.revokeObjectURL?.(objectUrl);}catch{/* browser cleanup */}};
+      if(typeof win.setTimeout==='function')win.setTimeout(revoke,0);else revoke();
+      await notify({title:'导出完成',body:'已导出 '+store().items.length+' 个自定义主题。'});
+    }catch(error){
+      if(objectUrl){try{(win.URL??globalThis.URL)?.revokeObjectURL?.(objectUrl);}catch{/* browser cleanup */}}
+      await notify({title:'导出失败',body:error?.message==='当前浏览器不支持文件下载。'?error.message:'无法生成主题文件，请稍后重试。'});
+    }
+  };
+  const importThemesFromFile=async()=>{
+    const file=fileInput.files?.[0];if(!file)return;
+    importButton.disabled=true;
+    try{
+      if(typeof file.text!=='function')throw new Error('当前浏览器无法读取所选文件。');
+      const result=importCustomThemesJson(await file.text(),settings.get().customThemeStore);
+      if(result.importedCount>0)settings.update({customThemeStore:result.customThemeStore});
+      render();
+      await notify({title:'导入完成',body:'成功导入 '+result.importedCount+' 个主题，跳过 '+result.skippedCount+' 个不合法的主题。'});
+    }catch(error){
+      const body=error?.code==='INVALID_JSON'
+        ?'文件不是有效的 JSON。请检查文件内容后重试。'
+        :error?.code==='INVALID_PACKAGE'
+          ?'主题文件格式或版本不受支持，无法导入。'
+          :'读取主题文件失败，请确认文件可正常打开后重试。';
+      await notify({title:'导入失败',body});
+    }finally{
+      fileInput.value='';importButton.disabled=false;
+    }
+  };
+  fileInput.addEventListener('change',()=>{void importThemesFromFile();});
   const render=()=>{
     if(disposed)return;list.replaceChildren();const saved=store();
     if(!saved.items.length){list.append(el('p','qqj-theme-empty','还没有自定义主题。可以从当前主题复制一份，再开始调整。'));return;}
