@@ -4,6 +4,7 @@ import {
   CUSTOM_THEME_EXPORT_FORMAT,
   createCustomThemesExport,
   createCustomThemesFilename,
+  downloadCustomThemesFile,
   importCustomThemesJson,
   stringifyCustomThemesExport,
 } from '../src/ui/theme-transfer.js';
@@ -112,4 +113,58 @@ test('外部 URL、JavaScript 和任意 CSS 不会进入已导入的主题库',(
   assert.equal(result.importedCount,0);
   assert.equal(result.skippedCount,unsafeValues.length);
   assert.deepEqual(result.customThemeStore.items,[]);
+});
+
+
+test('浏览器导出使用 Blob 与 object URL 下载 JSON，并回收临时 URL',()=>{
+  const preset=makeTheme('download','下载主题');
+  const calls={appended:0,clicked:0,removed:0,created:[],revoked:[],scheduled:null};
+  class FakeBlob {
+    constructor(parts,options){this.parts=parts;this.type=options.type;}
+  }
+  const documentRef={
+    body:{appendChild(link){calls.appended++;link.parentNode=this;}},
+    createElement(tag){
+      assert.equal(tag,'a');
+      return {
+        hidden:false,remove(){calls.removed++;},
+        click(){calls.clicked++;},
+      };
+    },
+  };
+  const windowRef={
+    Blob:FakeBlob,
+    URL:{
+      createObjectURL(blob){calls.created.push(blob);return 'blob:qqj-theme-test';},
+      revokeObjectURL(url){calls.revoked.push(url);},
+    },
+    setTimeout(callback,delay){assert.equal(delay,0);calls.scheduled=callback;},
+  };
+  let downloadedLink;
+  const originalCreate=documentRef.createElement;
+  documentRef.createElement=tag=>{
+    const link=originalCreate(tag);
+    const setter=Object.defineProperty;
+    setter(link,'href',{set(value){this._href=value;},get(){return this._href;}});
+    setter(link,'download',{set(value){this._download=value;},get(){return this._download;}});
+    const originalClick=link.click;
+    link.click=()=>{downloadedLink=link;originalClick();};
+    return link;
+  };
+  const result=downloadCustomThemesFile({
+    customThemeStore:{schemaVersion:1,activePresetId:'download',items:[preset]},
+    documentRef,windowRef,now:new Date('2026-11-13T03:04:05.000Z'),
+  });
+  assert.equal(result.filename,'qqj-themes-20261113.json');
+  assert.equal(result.exportedCount,1);
+  assert.equal(calls.appended,1);assert.equal(calls.clicked,1);assert.equal(calls.removed,1);
+  assert.equal(downloadedLink.href,'blob:qqj-theme-test');
+  assert.equal(downloadedLink.download,'qqj-themes-20261113.json');
+  assert.equal(calls.created[0].type,'application/json;charset=utf-8');
+  const payload=JSON.parse(calls.created[0].parts.join(''));
+  assert.equal(payload.format,CUSTOM_THEME_EXPORT_FORMAT);
+  assert.equal(payload.items[0].id,'download');
+  assert.deepEqual(calls.revoked,[]);
+  calls.scheduled();
+  assert.deepEqual(calls.revoked,['blob:qqj-theme-test']);
 });

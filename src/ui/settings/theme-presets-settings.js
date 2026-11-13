@@ -3,7 +3,7 @@ import {
   createStaticCustomThemePreset, normalizeCustomThemeStore, validateCustomThemePreset,
 } from '../theme-presets.js';
 import {
-  createCustomThemesFilename, importCustomThemesJson, stringifyCustomThemesExport,
+  downloadCustomThemesFile, importCustomThemesJson,
 } from '../theme-transfer.js';
 
 export const THEME_FOLLOW_VARIABLES = Object.freeze({
@@ -53,21 +53,12 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
     transferFeedback.textContent=title+'：'+body;
   };
   const exportThemes=async()=>{
-    let objectUrl='';
     try{
-      const now=new Date(),urlApi=win.URL??globalThis.URL,BlobCtor=win.Blob??globalThis.Blob;
-      if(typeof BlobCtor!=='function'||typeof urlApi?.createObjectURL!=='function')throw new Error('当前浏览器不支持文件下载。');
-      const content=stringifyCustomThemesExport(settings.get().customThemeStore,{now});
-      const blob=new BlobCtor([content],{type:'application/json;charset=utf-8'});
-      objectUrl=urlApi.createObjectURL(blob);
-      const link=el('a');link.href=objectUrl;link.download=createCustomThemesFilename(now);link.hidden=true;
-      documentRef.body?.appendChild?.(link);
-      try{link.click();}finally{link.remove?.();}
-      const revoke=()=>{try{urlApi.revokeObjectURL?.(objectUrl);}catch{/* browser cleanup */}};
-      if(typeof win.setTimeout==='function')win.setTimeout(revoke,0);else revoke();
-      await notify({title:'导出完成',body:'已导出 '+store().items.length+' 个自定义主题。'});
+      const result=downloadCustomThemesFile({
+        customThemeStore:settings.get().customThemeStore,documentRef,windowRef:win,now:new Date(),
+      });
+      await notify({title:'导出完成',body:'已导出 '+result.exportedCount+' 个自定义主题。'});
     }catch(error){
-      if(objectUrl){try{(win.URL??globalThis.URL)?.revokeObjectURL?.(objectUrl);}catch{/* browser cleanup */}}
       await notify({title:'导出失败',body:error?.message==='当前浏览器不支持文件下载。'?error.message:'无法生成主题文件，请稍后重试。'});
     }
   };

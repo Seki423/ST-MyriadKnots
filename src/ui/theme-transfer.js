@@ -20,7 +20,7 @@ function dateValue(value) {
 export function createCustomThemesFilename(now = new Date()) {
   const date = dateValue(now);
   const pad = value => String(value).padStart(2, '0');
-  return 'qqj-themes-' + date.getFullYear() + pad(date.getMonth() + 1) + pad(date.getDate()) + '.json';
+  return 'qqj-themes-' + String(date.getFullYear()).padStart(4, '0') + pad(date.getMonth() + 1) + pad(date.getDate()) + '.json';
 }
 
 export function createCustomThemesExport(customThemeStore, { now = new Date() } = {}) {
@@ -115,4 +115,51 @@ export function importCustomThemesJson(jsonText, currentCustomThemeStore) {
     importedCount: imported.length,
     skippedCount,
   };
+}
+
+
+export function downloadCustomThemesFile({
+  customThemeStore,
+  documentRef = globalThis.document,
+  windowRef = documentRef?.defaultView ?? globalThis,
+  now = new Date(),
+} = {}) {
+  const BlobCtor = windowRef?.Blob ?? globalThis.Blob;
+  const urlApi = windowRef?.URL ?? globalThis.URL;
+  if (
+    typeof BlobCtor !== 'function'
+    || typeof urlApi?.createObjectURL !== 'function'
+    || typeof documentRef?.createElement !== 'function'
+    || typeof documentRef?.body?.appendChild !== 'function'
+  ) {
+    throw new TypeError('当前浏览器不支持文件下载。');
+  }
+
+  const payload = createCustomThemesExport(customThemeStore, { now });
+  const content = JSON.stringify(payload, null, 2) + '\n';
+  const filename = createCustomThemesFilename(now);
+  const blob = new BlobCtor([content], { type: 'application/json;charset=utf-8' });
+  const objectUrl = urlApi.createObjectURL(blob);
+  const link = documentRef.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  link.hidden = true;
+
+  try {
+    documentRef.body.appendChild(link);
+    link.click();
+  } catch (error) {
+    try { urlApi.revokeObjectURL?.(objectUrl); } catch { /* browser cleanup */ }
+    throw error;
+  } finally {
+    link.remove?.();
+  }
+
+  const revoke = () => {
+    try { urlApi.revokeObjectURL?.(objectUrl); } catch { /* browser cleanup */ }
+  };
+  if (typeof windowRef?.setTimeout === 'function') windowRef.setTimeout(revoke, 0);
+  else revoke();
+
+  return { filename, exportedCount: payload.items.length };
 }
