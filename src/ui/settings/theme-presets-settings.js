@@ -57,7 +57,7 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
       const result=downloadCustomThemesFile({
         customThemeStore:settings.get().customThemeStore,documentRef,windowRef:win,now:new Date(),
       });
-      await notify({title:'导出完成',body:'已导出 '+result.exportedCount+' 个自定义主题。'});
+      await notify({title:'导出完成',body:'已导出 '+result.exportedCount+' 个自定义主题。'+(result.skippedCount>0?'另有 '+result.skippedCount+' 个不完整的主题未导出。':'')});
     }catch(error){
       await notify({title:'导出失败',body:error?.message==='当前浏览器不支持文件下载。'?error.message:'无法生成主题文件，请稍后重试。'});
     }

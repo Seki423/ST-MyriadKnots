@@ -192,3 +192,26 @@ test('主题库未满时 limitReached 为 false',()=>{
   const result=importCustomThemesJson(packageFor([makeTheme('a')]),emptyStore());
   assert.equal(result.limitReached,false);
 });
+
+test('主题库中存在字段缺失的主题时，导出只跳过该主题而不是整体失败',()=>{
+  const good=makeTheme('good','完整主题');
+  const partial={id:'partial',name:'缺字段',variables:{paper:'#ffffff'},createdAt:'',updatedAt:''};
+  const store={schemaVersion:1,activePresetId:'good',items:[partial,good]};
+  const exported=createCustomThemesExport(store,{now:new Date('2026-11-13T03:04:05.000Z')});
+  assert.deepEqual(exported.items.map(item=>item.id),['good']);
+  assert.doesNotThrow(()=>stringifyCustomThemesExport(store));
+});
+
+test('下载结果报告被跳过的不完整主题数量',()=>{
+  const good=makeTheme('good','完整主题');
+  const partial={id:'partial',name:'缺字段',variables:{paper:'#ffffff'}};
+  const created=[];
+  const documentRef={
+    createElement:()=>{const link={click(){},remove(){}};created.push(link);return link;},
+    body:{appendChild(){}},
+  };
+  const windowRef={Blob:class{constructor(parts){this.parts=parts;}},URL:{createObjectURL:()=>'blob:x',revokeObjectURL(){}},setTimeout:callback=>callback()};
+  const result=downloadCustomThemesFile({customThemeStore:{schemaVersion:1,activePresetId:null,items:[partial,good]},documentRef,windowRef,now:new Date('2026-11-13T03:04:05.000Z')});
+  assert.equal(result.exportedCount,1);
+  assert.equal(result.skippedCount,1);
+});

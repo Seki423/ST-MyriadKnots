@@ -27,8 +27,12 @@ export function createCustomThemesFilename(now = new Date()) {
 }
 
 export function createCustomThemesExport(customThemeStore, { now = new Date() } = {}) {
-  const store = normalizeCustomThemeStore(customThemeStore);
-  const items = store.items.map(item => validateCustomThemePreset(item));
+  // 已保存库里允许存在字段缺失的主题（运行时按字段回退）；导出只带完整合法的主题，
+  // 个别不完整主题不能让整个导出失败。
+  const items = [];
+  for (const item of normalizeCustomThemeStore(customThemeStore).items) {
+    try { items.push(validateCustomThemePreset(item)); } catch { /* 不完整主题不导出 */ }
+  }
   return {
     format: CUSTOM_THEME_EXPORT_FORMAT,
     schemaVersion: CUSTOM_THEME_SCHEMA_VERSION,
@@ -174,5 +178,6 @@ export function downloadCustomThemesFile({
   if (typeof windowRef?.setTimeout === 'function') windowRef.setTimeout(revoke, 0);
   else revoke();
 
-  return { filename, exportedCount: payload.items.length };
+  const skippedCount = normalizeCustomThemeStore(customThemeStore).items.length - payload.items.length;
+  return { filename, exportedCount: payload.items.length, skippedCount };
 }
