@@ -1,4 +1,5 @@
 import { fixedFontScale, normalizeFontScale } from './font-scale.js';
+import { CUSTOM_THEME_VARIABLES, isSafeCustomThemeValue, isSafeStaticThemeColor, normalizeCustomThemeStore } from './theme-presets.js';
 
 function text(value) { return typeof value === 'string' ? value.trim() : ''; }
 function sanitizeFamily(value) { return String(value ?? '').replace(/["\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim(); }
@@ -73,12 +74,30 @@ const backgroundColor = (documentRef, raw, fallback) => {
   return `rgb(${foreground.rgb.map((value, index) => Math.round(value * foreground.alpha + base.rgb[index] * (1 - foreground.alpha))).join(', ')})`;
 };
 
+function resolveCustomThemePalette(value, basePalette) {
+  const store = normalizeCustomThemeStore(value?.customThemeStore);
+  const preset = store.items.find(item => item.id === store.activePresetId);
+  if (!preset) return null;
+  const palette = {};
+  for (const key of CUSTOM_THEME_VARIABLES) {
+    const candidate = preset.variables[key];
+    const valid = key === 'onPrimary'
+      ? candidate === 'auto' || isSafeStaticThemeColor(candidate)
+      : isSafeCustomThemeValue(candidate);
+    palette[key] = valid ? candidate : basePalette[key];
+  }
+  return palette;
+}
+
+
 export function resolveAppearance({ value = {}, documentRef = globalThis.document, windowRef = documentRef?.defaultView ?? globalThis } = {}) {
   const mode = ['auto', 'day', 'night'].includes(value.appearanceTheme) ? value.appearanceTheme : 'auto';
   const signals = hostSignals({ documentRef, windowRef }), bodyColor = cssColor(documentRef, signals.body);
   const hostTheme = bodyColor ? ((luminance(bodyColor) ?? 0) > 127 ? 'night' : 'day') : null;
   const systemTheme = windowRef?.matchMedia?.('(prefers-color-scheme: light)')?.matches ? 'day' : 'night';
   const effectiveTheme = mode === 'auto' ? (hostTheme ?? systemTheme) : mode;
+  const customPalette = resolveCustomThemePalette(value, PALETTES[effectiveTheme]);
+  if (customPalette) return { mode, effectiveTheme, palette: customPalette, hasHostSignal: Boolean(hostTheme) };
   const palette = (mode === 'auto' ? AUTO_FALLBACK_PALETTES : PALETTES)[effectiveTheme];
   if (mode !== 'auto') return { mode, effectiveTheme, palette: { ...palette, onPrimary: onPrimary(cssColor(documentRef, palette.knot)) }, hasHostSignal: Boolean(hostTheme) };
   const opaque = (raw, fallback) => cssColor(documentRef, raw)?.value ?? fallback;
@@ -115,12 +134,53 @@ export function resolveAppearance({ value = {}, documentRef = globalThis.documen
   };
 }
 
+const primaryColorProbes = new WeakMap();
+
+function automaticPrimaryText({ host, documentRef, windowRef }) {
+  if (!host || !documentRef?.createElement || typeof windowRef?.getComputedStyle !== 'function') return '#fff';
+  let probe = primaryColorProbes.get(documentRef);
+  if (!probe) {
+    try {
+      probe = documentRef.createElement('span');
+      if (!probe) return '#fff';
+      primaryColorProbes.set(documentRef, probe);
+    } catch { return '#fff'; }
+  }
+  try {
+    probe.style?.setProperty?.('position', 'fixed');
+    probe.style?.setProperty?.('visibility', 'hidden');
+    probe.style?.setProperty?.('pointer-events', 'none');
+    probe.style?.setProperty?.('color', 'var(--knot)');
+    if (typeof host.appendChild === 'function') host.appendChild(probe);
+    else if (typeof host.append === 'function') host.append(probe);
+    else return '#fff';
+    const parsed = cssColor(documentRef, text(windowRef.getComputedStyle(probe)?.color));
+    return parsed ? onPrimary(parsed) : '#fff';
+  } catch {
+    return '#fff';
+  } finally {
+    try {
+      if (typeof probe.remove === 'function') probe.remove();
+      else if (probe.parentNode && typeof probe.parentNode.removeChild === 'function') probe.parentNode.removeChild(probe);
+    } catch { /* disposable probe */ }
+  }
+}
+
 export function applyAppearance({ host, root, settings, documentRef = globalThis.document, windowRef = documentRef?.defaultView ?? globalThis, fetchImpl = globalThis.fetch } = {}) {
   const value = settings?.get?.() ?? settings ?? {};
   const appearance = resolveAppearance({ value, documentRef, windowRef });
   host?.setAttribute?.('data-qqj-theme', appearance.effectiveTheme);
   host?.setAttribute?.('data-qqj-theme-mode', appearance.mode);
-  for (const [name, color] of Object.entries(appearance.palette)) host?.style?.setProperty?.(`--${name.replace(/[A-Z]/gu, letter => `-${letter.toLowerCase()}`)}`, color);
+  const palette = { ...appearance.palette };
+  const autoPrimary = palette.onPrimary === 'auto';
+  for (const [name, color] of Object.entries(palette)) {
+    if (name === 'onPrimary' && autoPrimary) continue;
+    host?.style?.setProperty?.('--' + name.replace(/[A-Z]/gu, letter => '-' + letter.toLowerCase()), color);
+  }
+  if (autoPrimary) {
+    palette.onPrimary = automaticPrimaryText({ host, documentRef, windowRef });
+    host?.style?.setProperty?.('--on-primary', palette.onPrimary);
+  }
   const scale = normalizeFontScale(value.appearanceScale);
   host?.style?.setProperty?.('--qqj-ui-scale', String(scale));
   const fixedScale = fixedFontScale(scale);
@@ -162,7 +222,7 @@ export function applyAppearance({ host, root, settings, documentRef = globalThis
     })();
   }
 
-  return { theme: appearance.mode, mode: appearance.mode, effectiveTheme: appearance.effectiveTheme, hasHostSignal: appearance.hasHostSignal, palette: appearance.palette, scale, fixedScale, family: cachedFamily, fontCssUrl: url, fontReady };
+  return { theme: appearance.mode, mode: appearance.mode, effectiveTheme: appearance.effectiveTheme, hasHostSignal: appearance.hasHostSignal, palette, scale, fixedScale, family: cachedFamily, fontCssUrl: url, fontReady };
 }
 
 export function createAppearanceController({ host, root, settings, documentRef = globalThis.document, windowRef = documentRef?.defaultView ?? globalThis, fetchImpl = globalThis.fetch, onChange } = {}) {

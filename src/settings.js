@@ -2,6 +2,7 @@ import { getSharedBodyWrappers, updateSharedBodyWrappers } from './shared-body-w
 import { initializeSharedProcessingPrompt, getSharedProcessingPrompt, updateSharedProcessingPrompt } from './shared-processing-prompt.js';
 import { normalizeStoryClockReferenceTags } from './story-clock.js';
 import { normalizeStoryCalendar } from './v3/calendar-rules.js';
+import { createDefaultCustomThemeStore, normalizeCustomThemeStore } from './ui/theme-presets.js';
 
 export const SETTINGS_ID = 'qianqianjie';
 
@@ -55,6 +56,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   appearanceScale: 1,
   appearanceFontCssUrl: '',
   appearanceFontFamily: '',
+  customThemeStore: createDefaultCustomThemeStore(),
 });
 
 const API_MODES = new Set(['auto', 'seven-preset']);
@@ -194,6 +196,7 @@ export function createSettingsStore({ extensionSettings, save = () => {}, now, r
     if (!Array.isArray(settings.apiExcludeParams)) settings.apiExcludeParams = [];
     if (!Array.isArray(settings.apiPresets)) settings.apiPresets = [];
     if (!Array.isArray(settings.sourceWorldInfoExcludedBooks)) settings.sourceWorldInfoExcludedBooks = [];
+    settings.customThemeStore = normalizeCustomThemeStore(settings.customThemeStore);
     if (!APPEARANCE_THEMES.has(settings.appearanceTheme)) settings.appearanceTheme = 'auto';
     settings.inlineRecallVisible = settings.inlineRecallVisible !== false;
     settings.inlineMemoryVisible = settings.inlineMemoryVisible !== false;
@@ -280,6 +283,7 @@ export function createSettingsStore({ extensionSettings, save = () => {}, now, r
     if (own(patch, 'appearanceScale')) settings.appearanceScale = normalizeScale(patch.appearanceScale);
     if (own(patch, 'appearanceFontCssUrl')) settings.appearanceFontCssUrl = text(patch.appearanceFontCssUrl).trim();
     if (own(patch, 'appearanceFontFamily')) settings.appearanceFontFamily = text(patch.appearanceFontFamily).trim();
+    if (own(patch, 'customThemeStore')) settings.customThemeStore = normalizeCustomThemeStore(patch.customThemeStore);
     notify(observeSaveFailure);
     return settings;
   };

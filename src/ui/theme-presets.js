@@ -23,13 +23,159 @@ const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const cleanText = value => typeof value === 'string' ? value.trim() : '';
 
-function isSafeColor(value) {
+const HEX_COLOR = /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/iu;
+const RGB_NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%?$/u;
+const HSL_HUE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:deg|rad|turn)?$/iu;
+const HSL_PERCENT = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%$/u;
+const ALPHA_NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%?$/u;
+const VARIABLE_NAME = /^--(?:SmartTheme[A-Za-z\d_-]*|qqj-[A-Za-z\d_-]+)$/u;
+
+// These QQJ aliases are derived from palette fields inside the Shadow DOMs.
+const QQJ_PALETTE_ALIASES = new Map([
+  ['--qqj-color-text', 'ink'], ['--qqj-color-muted', 'soft'], ['--qqj-inline-soft', 'soft'],
+  ['--qqj-color-accent', 'knot'], ['--qqj-inline-knot', 'knot'],
+  ['--qqj-color-danger', 'crimson'], ['--qqj-inline-error', 'crimson'],
+  ['--qqj-color-success', 'success'], ['--qqj-inline-success', 'success'],
+  ['--qqj-color-surface', 'panel'], ['--qqj-color-line', 'line'], ['--qqj-inline-line', 'line'],
+  ['--qqj-color-on-accent', 'onPrimary'],
+  ['--qqj-dialog-sheet', 'panel'], ['--qqj-dialog-surface', 'paper'],
+  ['--qqj-dialog-ink', 'ink'], ['--qqj-dialog-soft', 'soft'], ['--qqj-dialog-divider', 'line'],
+  ['--qqj-dialog-primary', 'knot'], ['--qqj-dialog-danger', 'crimson'],
+  ['--qqj-dialog-success', 'success'], ['--qqj-dialog-blue', 'blue'], ['--qqj-dialog-on-primary', 'onPrimary'],
+  ['--qqj-fab-primary', 'knot'], ['--qqj-fab-ink', 'ink'], ['--qqj-fab-surface', 'panel'],
+]);
+
+function splitTopLevel(value, delimiter = ',') {
+  const result = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    if (value[i] === '(') depth += 1;
+    else if (value[i] === ')') { depth -= 1; if (depth < 0) return null; }
+    else if (value[i] === delimiter && depth === 0) {
+      result.push(value.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  if (depth !== 0) return null;
+  result.push(value.slice(start).trim());
+  return result;
+}
+
+function getFunctionBody(value, name) {
+  const match = new RegExp('^' + name + '\\s*\\(', 'iu').exec(value);
+  if (!match || !value.endsWith(')')) return null;
+  const body = value.slice(match[0].length, -1);
+  let depth = 0;
+  for (const character of body) {
+    if (character === '(') depth += 1;
+    else if (character === ')') { depth -= 1; if (depth < 0) return null; }
+  }
+  return depth === 0 ? body : null;
+}
+
+function isStaticColor(value) {
   if (typeof value !== 'string') return false;
   const color = value.trim();
-  if (!color || color.length > 128) return false;
-  if (/^#[\da-f]{3,4}(?:[\da-f]{2}){0,2}$/iu.test(color)) return true;
-  // Numeric-only functional color syntax: no url(), var(), declarations or delimiters.
-  return /^(?:rgb|rgba|hsl|hsla)\(\s*[-+\d.%\s,/]+\)$/iu.test(color);
+  if (!color || color.length > 200 || /[;{}]|\/\*|\*\//u.test(color)) return false;
+  if (HEX_COLOR.test(color)) return true;
+
+  const match = /^(rgb|rgba|hsl|hsla)\((.*)\)$/iu.exec(color);
+  if (!match) return false;
+  const fn = match[1].toLowerCase(), body = match[2].trim();
+  const slash = splitTopLevel(body, '/');
+  if (!slash || slash.length > 2) return false;
+  const source = slash[0], comma = source.includes(',');
+  const channels = comma ? splitTopLevel(source, ',') : source.split(/\s+/u);
+  if (!channels || channels.some(item => !item)) return false;
+  let alpha = slash[1] ?? null;
+  const alphaFunction = fn === 'rgba' || fn === 'hsla';
+  if (channels.length === 4) {
+    if (!comma || alpha !== null || !alphaFunction) return false;
+    alpha = channels.pop();
+  }
+  if (channels.length !== 3 || (alphaFunction && alpha === null)) return false;
+  if (fn === 'rgb' || fn === 'rgba') {
+    if (!channels.every(item => RGB_NUMBER.test(item))) return false;
+  } else if (!HSL_HUE.test(channels[0]) || !HSL_PERCENT.test(channels[1]) || !HSL_PERCENT.test(channels[2])) {
+    return false;
+  }
+  return alpha === null || ALPHA_NUMBER.test(alpha);
+}
+
+function parseVar(value) {
+  const body = getFunctionBody(value, 'var');
+  if (body === null) return null;
+  const parts = splitTopLevel(body);
+  if (!parts || parts.length !== 2 || !VARIABLE_NAME.test(parts[0])) return null;
+  return { name: parts[0], fallback: parts[1] };
+}
+
+function validateVarFallback(value, references) {
+  const candidate = value.trim();
+  if (isStaticColor(candidate)) return true;
+  const variable = parseVar(candidate);
+  if (!variable || references.has(variable.name)) return false;
+  const next = new Set(references);
+  next.add(variable.name);
+  return validateVarFallback(variable.fallback, next);
+}
+
+function validateColorExpression(value, references = new Set()) {
+  if (typeof value !== 'string') return false;
+  const candidate = value.trim();
+  if (!candidate || candidate.length > 200 || /[;{}]|\/\*|\*\//u.test(candidate)) return false;
+  if (isStaticColor(candidate)) return true;
+
+  const variable = parseVar(candidate);
+  if (variable) {
+    if (references.has(variable.name) || !variable.fallback) return false;
+    const next = new Set(references);
+    next.add(variable.name);
+    return validateVarFallback(variable.fallback, next);
+  }
+
+  const mixBody = getFunctionBody(candidate, 'color-mix');
+  if (mixBody === null) return false;
+  const parts = splitTopLevel(mixBody);
+  if (!parts || parts.length !== 3 || parts[0].toLowerCase() !== 'in srgb') return false;
+  const weighted = /^(.+?)\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+))%$/iu.exec(parts[1]);
+  if (!weighted) return false;
+  const percentage = Number(weighted[2]);
+  if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) return false;
+  return validateColorExpression(weighted[1].trim(), new Set(references))
+    && validateColorExpression(parts[2], new Set(references));
+}
+
+function findThemeReferenceCycles(variables) {
+  const graph = new Map();
+  for (const [field, value] of Object.entries(variables)) {
+    const edges = new Set();
+    for (const match of value.matchAll(/var\(\s*(--[A-Za-z\d_-]+)/giu)) {
+      const target = QQJ_PALETTE_ALIASES.get(match[1]);
+      if (target && Object.prototype.hasOwnProperty.call(variables, target)) edges.add(target);
+    }
+    graph.set(field, edges);
+  }
+  const visited = new Set(), stack = [], cyclic = new Set();
+  const visit = field => {
+    const index = stack.indexOf(field);
+    if (index >= 0) { for (const item of stack.slice(index)) cyclic.add(item); return; }
+    if (visited.has(field)) return;
+    stack.push(field);
+    for (const target of graph.get(field) ?? []) visit(target);
+    stack.pop();
+    visited.add(field);
+  };
+  for (const field of graph.keys()) visit(field);
+  return cyclic;
+}
+
+export function isSafeCustomThemeValue(value) {
+  return validateColorExpression(value);
+}
+
+export function isSafeStaticThemeColor(value) {
+  return isStaticColor(value);
 }
 
 function normalizeTimestamp(value) {
@@ -51,28 +197,25 @@ export function createCustomThemeId(now = Date.now, random = Math.random) {
  */
 export function validateCustomThemePreset(value, { existingIds = [] } = {}) {
   if (!record(value)) throw new TypeError('自定义主题必须是对象。');
-  const id = cleanText(value.id);
-  const name = cleanText(value.name);
+  const id = cleanText(value.id), name = cleanText(value.name);
   if (!id || id.length > 100) throw new TypeError('自定义主题 ID 无效。');
   if (!name || name.length > 80) throw new TypeError('自定义主题名称无效。');
   if (existingIds.includes(id)) throw new TypeError('自定义主题 ID 重复，不能覆盖已有主题。');
   if (!record(value.variables)) throw new TypeError('自定义主题变量必须是对象。');
-
   const unknown = Object.keys(value.variables).filter(key => !VARIABLE_SET.has(key));
-  if (unknown.length) throw new TypeError(`自定义主题包含不支持的变量：${unknown.join(', ')}。`);
+  if (unknown.length) throw new TypeError('自定义主题包含不支持的变量：' + unknown.join(', ') + '。');
 
   const variables = {};
   for (const key of CUSTOM_THEME_VARIABLES) {
-    if (!own(value.variables, key) || !isSafeColor(value.variables[key])) {
-      throw new TypeError(`自定义主题变量 ${key} 缺失或颜色值无效。`);
-    }
-    variables[key] = value.variables[key].trim();
+    if (!own(value.variables, key)) throw new TypeError('自定义主题变量 ' + key + ' 缺失或颜色值无效。');
+    const raw = value.variables[key];
+    const valid = key === 'onPrimary' ? raw === 'auto' || isStaticColor(raw) : validateColorExpression(raw);
+    if (!valid) throw new TypeError('自定义主题变量 ' + key + ' 缺失或颜色值无效。');
+    variables[key] = raw.trim();
   }
-
+  if (findThemeReferenceCycles(variables).size) throw new TypeError('自定义主题包含循环引用。');
   return {
-    id,
-    name,
-    variables,
+    id, name, variables,
     createdAt: normalizeTimestamp(value.createdAt),
     updatedAt: normalizeTimestamp(value.updatedAt),
   };
@@ -86,25 +229,76 @@ export function normalizeCustomThemeStore(value) {
   if (!record(value) || value.schemaVersion !== CUSTOM_THEME_SCHEMA_VERSION || !Array.isArray(value.items)) {
     return createDefaultCustomThemeStore();
   }
-
-  const items = [];
-  const ids = new Set();
+  const items = [], ids = new Set();
   for (const candidate of value.items) {
-    const id = cleanText(candidate?.id);
-    if (!id || ids.has(id)) continue;
-    try {
-      const preset = validateCustomThemePreset(candidate, { existingIds: [...ids] });
-      items.push(preset);
-      ids.add(preset.id);
-    } catch {
-      // Ignore malformed persisted records without blocking other valid themes.
+    if (!record(candidate) || !record(candidate.variables)) continue;
+    const id = cleanText(candidate.id), name = cleanText(candidate.name);
+    if (!id || id.length > 100 || !name || name.length > 80 || ids.has(id)) continue;
+    const variables = {};
+    for (const key of CUSTOM_THEME_VARIABLES) {
+      if (!own(candidate.variables, key)) continue;
+      const raw = candidate.variables[key];
+      const valid = key === 'onPrimary' ? raw === 'auto' || isStaticColor(raw) : validateColorExpression(raw);
+      if (valid) variables[key] = raw.trim();
     }
+    for (const key of findThemeReferenceCycles(variables)) delete variables[key];
+    items.push({
+      id, name, variables,
+      createdAt: normalizeTimestamp(candidate.createdAt),
+      updatedAt: normalizeTimestamp(candidate.updatedAt),
+    });
+    ids.add(id);
   }
-
   const requestedActiveId = cleanText(value.activePresetId);
   return {
     schemaVersion: CUSTOM_THEME_SCHEMA_VERSION,
     activePresetId: ids.has(requestedActiveId) ? requestedActiveId : null,
     items,
   };
+}
+
+
+function staticVariablesFromPalette(palette) {
+  if (!record(palette)) throw new TypeError('当前主题 palette 无效。');
+  const variables = {};
+  for (const key of CUSTOM_THEME_VARIABLES) {
+    const color = cleanText(palette[key]);
+    if (key === 'onPrimary' && color === 'auto') { variables[key] = '#fff'; continue; }
+    if (!isStaticColor(color)) throw new TypeError('当前主题变量 ' + key + ' 不是可保存的静态颜色。');
+    variables[key] = color;
+  }
+  return variables;
+}
+
+function timestampFrom(now) {
+  const value = typeof now === 'function' ? now() : now ?? Date.now();
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
+}
+
+function makePreset({ name, variables, id, now = Date.now, random = Math.random } = {}) {
+  const timestamp = timestampFrom(now);
+  return validateCustomThemePreset({
+    id: cleanText(id) || createCustomThemeId(now, random),
+    name, variables, createdAt: timestamp, updatedAt: timestamp,
+  });
+}
+
+export function createStaticCustomThemePreset(options = {}) {
+  return makePreset({ ...options, variables: staticVariablesFromPalette(options.palette) });
+}
+
+export function createDynamicCustomThemePreset(options = {}) {
+  const base = staticVariablesFromPalette(options.palette);
+  const variables = {
+    ...base,
+    paper: 'var(--SmartThemeBlurTintColor, ' + base.paper + ')',
+    panel: 'var(--SmartThemeChatTintColor, ' + base.panel + ')',
+    ink: 'var(--SmartThemeBodyColor, ' + base.ink + ')',
+    soft: 'var(--SmartThemeEmColor, ' + base.soft + ')',
+    line: 'var(--SmartThemeBorderColor, ' + base.line + ')',
+    knot: 'var(--SmartThemeQuoteColor, ' + base.knot + ')',
+    onPrimary: 'auto',
+  };
+  return makePreset({ ...options, variables });
 }
