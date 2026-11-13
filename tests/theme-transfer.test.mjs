@@ -43,14 +43,16 @@ test('导出完整主题包：包含格式、版本、时间和全部主题',()=
 
 test('合法导入会追加到现有主题库并保留当前激活主题',()=>{
   const current=makeTheme('existing','原主题');
-  const incoming=[makeTheme('incoming','导入主题'),makeTheme('incoming-2','第二个导入主题')];
+  const incoming=[makeTheme('incoming','导入主题',{onPrimary:'#22282b'}),makeTheme('incoming-2','第二个导入主题')];
   const result=importCustomThemesJson(packageFor(incoming),{schemaVersion:1,activePresetId:'existing',items:[current]});
   assert.equal(result.importedCount,2);
   assert.equal(result.skippedCount,0);
   assert.equal(result.customThemeStore.items.length,3);
   assert.deepEqual(result.customThemeStore.items.slice(0,1),[current]);
   assert.equal(result.customThemeStore.activePresetId,'existing');
-  assert.deepEqual(result.customThemeStore.items.slice(1),incoming);
+  assert.equal(result.customThemeStore.items[1].id,incoming[0].id);
+  assert.equal(result.customThemeStore.items[1].variables.onPrimary,'auto');
+  assert.equal(result.customThemeStore.items[2].id,incoming[1].id);
 });
 
 test('ID 与已有主题或同批导入主题冲突时生成唯一新 ID，不覆盖旧记录',()=>{

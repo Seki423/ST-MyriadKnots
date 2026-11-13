@@ -92,10 +92,13 @@ export function importCustomThemesJson(jsonText, currentCustomThemeStore) {
         throw new TypeError('主题包含不支持的字段。');
       }
 
-      const id = usedIds.has(validated.id) ? uniqueImportedId(validated.id, usedIds) : validated.id;
-      const safePreset = id === validated.id
-        ? validated
-        : validateCustomThemePreset({ ...validated, id }, { existingIds: [...usedIds] });
+      // Imported themes use the computed foreground mode so the accent text stays readable.
+      const importPreset = {
+        ...validated,
+        variables: { ...validated.variables, onPrimary: 'auto' },
+      };
+      const id = usedIds.has(importPreset.id) ? uniqueImportedId(importPreset.id, usedIds) : importPreset.id;
+      const safePreset = validateCustomThemePreset({ ...importPreset, id }, { existingIds: [...usedIds] });
       imported.push(safePreset);
       usedIds.add(safePreset.id);
     } catch {
