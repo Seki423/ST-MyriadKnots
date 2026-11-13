@@ -187,3 +187,21 @@ test('保存草稿时主题校验失败会在编辑器内提示，而不是抛�
   assert.equal(fixture.writes,0);
   assert.equal(fixture.overlayRoot.children.length,1,'校验失败后编辑器保持打开，草稿不丢失');
 });
+
+test('主题列表渲染只对已挂载列表做一次 DOM 替换，不逐卡追加',()=>{
+  const items=['a','b','c'].map(id=>makePreset({id,name:'Theme '+id}));
+  const fixture=setup({schemaVersion:1,activePresetId:'a',items});
+  const list=fixture.component.node.children[1];
+  let replaced=0;const appendSizes=[];
+  const replaceChildren=list.replaceChildren.bind(list),append=list.append.bind(list);
+  list.replaceChildren=(...nodes)=>{replaced++;replaceChildren(...nodes);};
+  // FakeElement.replaceChildren 内部会调用一次 append；逐卡追加则会出现多次 append。
+  list.append=(...nodes)=>{appendSizes.push(nodes.length);append(...nodes);};
+  fixture.component.refresh();
+  assert.equal(replaced,1);
+  assert.deepEqual(appendSizes,[3],'三张卡片在同一次操作里整体挂载');
+  assert.equal(list.children.length,3);
+  fixture.state.customThemeStore={schemaVersion:1,activePresetId:null,items:[]};
+  fixture.component.refresh();
+  assert.equal(replaced,2);assert.equal(list.children.length,1,'空库显示一条提示');
+});

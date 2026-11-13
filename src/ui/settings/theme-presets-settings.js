@@ -84,8 +84,10 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
   };
   fileInput.addEventListener('change',()=>{void importThemesFromFile();});
   const render=()=>{
-    if(disposed)return;list.replaceChildren();const saved=store();
-    if(!saved.items.length){list.append(el('p','qqj-theme-empty','还没有自定义主题。可以从当前主题复制一份，再开始调整。'));return;}
+    if(disposed)return;const saved=store();
+    if(!saved.items.length){list.replaceChildren(el('p','qqj-theme-empty','还没有自定义主题。可以从当前主题复制一份，再开始调整。'));return;}
+    // 先在内存里组装全部卡片，最后一次性替换，避免对已挂载列表逐卡追加造成多次布局。
+    const cards=[];
     for(const preset of saved.items){
       const card=el('article','qqj-theme-card'),title=el('div','qqj-theme-card-header');
       title.append(el('strong','qqj-theme-name',preset.name));
@@ -100,8 +102,9 @@ export function createThemePresetsSettings({settings,documentRef=globalThis.docu
       }
       const meta=el('div','qqj-theme-card-meta',isDynamic(preset)?'动态跟随':'静态配色'),controls=el('div','qqj-theme-card-actions');
       controls.append(btn('应用','primary-action',()=>applyPreset(preset.id)),btn('编辑','secondary-action',()=>openEditor(preset)),btn('删除','danger-action',()=>{void removePreset(preset.id);}));
-      card.append(title,swatches,meta,controls);list.append(card);
+      card.append(title,swatches,meta,controls);cards.push(card);
     }
+    list.replaceChildren(...cards);
   };
   const applyPreset=id=>{
     const saved=store();if(!saved.items.some(item=>item.id===id))return;
