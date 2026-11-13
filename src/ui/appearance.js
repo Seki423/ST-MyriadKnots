@@ -1,4 +1,5 @@
 import { fixedFontScale, normalizeFontScale } from './font-scale.js';
+import { CUSTOM_THEME_VARIABLES, hasHostFollowingVariables, isValidThemeFieldValue, normalizeCustomThemeStore } from './theme-presets.js';
 
 function text(value) { return typeof value === 'string' ? value.trim() : ''; }
 function sanitizeFamily(value) { return String(value ?? '').replace(/["\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim(); }
@@ -73,12 +74,33 @@ const backgroundColor = (documentRef, raw, fallback) => {
   return `rgb(${foreground.rgb.map((value, index) => Math.round(value * foreground.alpha + base.rgb[index] * (1 - foreground.alpha))).join(', ')})`;
 };
 
+function hasDynamicHostTheme(value) {
+  const store = normalizeCustomThemeStore(value?.customThemeStore);
+  const preset = store.items.find(item => item.id === store.activePresetId);
+  return Boolean(preset && hasHostFollowingVariables(preset.variables));
+}
+
+function resolveCustomThemePalette(value, basePalette) {
+  const store = normalizeCustomThemeStore(value?.customThemeStore);
+  const preset = store.items.find(item => item.id === store.activePresetId);
+  if (!preset) return null;
+  const palette = {};
+  for (const key of CUSTOM_THEME_VARIABLES) {
+    const candidate = preset.variables[key];
+    palette[key] = isValidThemeFieldValue(key, candidate) ? candidate : basePalette[key];
+  }
+  return palette;
+}
+
+
 export function resolveAppearance({ value = {}, documentRef = globalThis.document, windowRef = documentRef?.defaultView ?? globalThis } = {}) {
   const mode = ['auto', 'day', 'night'].includes(value.appearanceTheme) ? value.appearanceTheme : 'auto';
   const signals = hostSignals({ documentRef, windowRef }), bodyColor = cssColor(documentRef, signals.body);
   const hostTheme = bodyColor ? ((luminance(bodyColor) ?? 0) > 127 ? 'night' : 'day') : null;
   const systemTheme = windowRef?.matchMedia?.('(prefers-color-scheme: light)')?.matches ? 'day' : 'night';
   const effectiveTheme = mode === 'auto' ? (hostTheme ?? systemTheme) : mode;
+  const customPalette = resolveCustomThemePalette(value, PALETTES[effectiveTheme]);
+  if (customPalette) return { mode, effectiveTheme, palette: customPalette, hasHostSignal: Boolean(hostTheme) };
   const palette = (mode === 'auto' ? AUTO_FALLBACK_PALETTES : PALETTES)[effectiveTheme];
   if (mode !== 'auto') return { mode, effectiveTheme, palette: { ...palette, onPrimary: onPrimary(cssColor(documentRef, palette.knot)) }, hasHostSignal: Boolean(hostTheme) };
   const opaque = (raw, fallback) => cssColor(documentRef, raw)?.value ?? fallback;
@@ -115,12 +137,62 @@ export function resolveAppearance({ value = {}, documentRef = globalThis.documen
   };
 }
 
-export function applyAppearance({ host, root, settings, documentRef = globalThis.document, windowRef = documentRef?.defaultView ?? globalThis, fetchImpl = globalThis.fetch } = {}) {
+const primaryColorProbes = new WeakMap();
+
+function automaticPrimaryText({ host, documentRef, windowRef }) {
+  if (!host || !documentRef?.createElement || typeof windowRef?.getComputedStyle !== 'function') return '#fff';
+  let probe = primaryColorProbes.get(documentRef);
+  if (!probe) {
+    try {
+      probe = documentRef.createElement('span');
+      if (!probe) return '#fff';
+      primaryColorProbes.set(documentRef, probe);
+    } catch { return '#fff'; }
+  }
+  try {
+    probe.style?.setProperty?.('position', 'fixed');
+    probe.style?.setProperty?.('visibility', 'hidden');
+    probe.style?.setProperty?.('pointer-events', 'none');
+    probe.style?.setProperty?.('color', 'var(--knot)');
+    if (typeof host.appendChild === 'function') host.appendChild(probe);
+    else if (typeof host.append === 'function') host.append(probe);
+    else return '#fff';
+    const readColor = value => {
+      probe.style?.setProperty?.('color', value);
+      return cssColor(documentRef, text(windowRef.getComputedStyle(probe)?.color));
+    };
+    let accent = readColor('var(--knot)');
+    if (accent && accent.alpha < 1) {
+      // 半透明强调色实际显示的是它叠在卡片底色上的结果，按合成色计算对比度才可靠。
+      const base = readColor('var(--panel)');
+      if (base) accent = { rgb: accent.rgb.map((value, index) => Math.round(value * accent.alpha + base.rgb[index] * (1 - accent.alpha))) };
+    }
+    return accent ? onPrimary(accent) : '#fff';
+  } catch {
+    return '#fff';
+  } finally {
+    try {
+      if (typeof probe.remove === 'function') probe.remove();
+      else if (probe.parentNode && typeof probe.parentNode.removeChild === 'function') probe.parentNode.removeChild(probe);
+    } catch { /* disposable probe */ }
+  }
+}
+
+export function applyAppearance({ host, root, settings, documentRef = globalThis.document, windowRef = documentRef?.defaultView ?? globalThis, fetchImpl = globalThis.fetch, applyFont = true } = {}) {
   const value = settings?.get?.() ?? settings ?? {};
   const appearance = resolveAppearance({ value, documentRef, windowRef });
   host?.setAttribute?.('data-qqj-theme', appearance.effectiveTheme);
   host?.setAttribute?.('data-qqj-theme-mode', appearance.mode);
-  for (const [name, color] of Object.entries(appearance.palette)) host?.style?.setProperty?.(`--${name.replace(/[A-Z]/gu, letter => `-${letter.toLowerCase()}`)}`, color);
+  const palette = { ...appearance.palette };
+  const autoPrimary = palette.onPrimary === 'auto';
+  for (const [name, color] of Object.entries(palette)) {
+    if (name === 'onPrimary' && autoPrimary) continue;
+    host?.style?.setProperty?.('--' + name.replace(/[A-Z]/gu, letter => '-' + letter.toLowerCase()), color);
+  }
+  if (autoPrimary) {
+    palette.onPrimary = automaticPrimaryText({ host, documentRef, windowRef });
+    host?.style?.setProperty?.('--on-primary', palette.onPrimary);
+  }
   const scale = normalizeFontScale(value.appearanceScale);
   host?.style?.setProperty?.('--qqj-ui-scale', String(scale));
   const fixedScale = fixedFontScale(scale);
@@ -128,6 +200,11 @@ export function applyAppearance({ host, root, settings, documentRef = globalThis
 
   const url = text(value.appearanceFontCssUrl);
   const cachedFamily = sanitizeFamily(value.appearanceFontFamily);
+  if (!applyFont) return {
+    theme: appearance.mode, mode: appearance.mode, effectiveTheme: appearance.effectiveTheme,
+    hasHostSignal: appearance.hasHostSignal, palette, scale, fixedScale,
+    family: cachedFamily, fontCssUrl: url, fontReady: Promise.resolve(),
+  };
   const setFont = family => host?.style?.setProperty?.('--qqj-custom-font', family ? `"${family}"` : 'system-ui');
 
   const old = root?.querySelector?.('link[data-qqj-custom-font]');
@@ -162,18 +239,62 @@ export function applyAppearance({ host, root, settings, documentRef = globalThis
     })();
   }
 
-  return { theme: appearance.mode, mode: appearance.mode, effectiveTheme: appearance.effectiveTheme, hasHostSignal: appearance.hasHostSignal, palette: appearance.palette, scale, fixedScale, family: cachedFamily, fontCssUrl: url, fontReady };
+  return { theme: appearance.mode, mode: appearance.mode, effectiveTheme: appearance.effectiveTheme, hasHostSignal: appearance.hasHostSignal, palette, scale, fixedScale, family: cachedFamily, fontCssUrl: url, fontReady };
 }
 
 export function createAppearanceController({ host, root, settings, documentRef = globalThis.document, windowRef = documentRef?.defaultView ?? globalThis, fetchImpl = globalThis.fetch, onChange } = {}) {
-  let destroyed = false, current = null;
-  const apply = () => { if (destroyed) return current; current = applyAppearance({ host, root, settings, documentRef, windowRef, fetchImpl }); onChange?.(current); return current; };
+  let destroyed = false, current = null, previewValue = null;
+  const savedValue = () => settings?.get?.() ?? settings ?? {};
+  const apply = () => {
+    if (destroyed) return current;
+    const source = previewValue ? { get: () => previewValue } : settings;
+    current = applyAppearance({ host, root, settings: source, documentRef, windowRef, fetchImpl, applyFont: !previewValue });
+    onChange?.(current);
+    return current;
+  };
+  const preview = preset => {
+    if (!preset || typeof preset.id !== 'string' || !preset.variables) throw new TypeError('预览主题格式无效。');
+    const base = savedValue(), store = normalizeCustomThemeStore(base.customThemeStore);
+    const items = store.items.filter(item => item.id !== preset.id);
+    // 名称为空（用户正在清空输入框）的草稿会被 normalizeCustomThemeStore 丢弃，预览会闪回基础主题；预览只关心颜色，补一个占位名。
+    items.push({ ...preset, name: text(preset.name).slice(0, 80) || '预览', variables: { ...preset.variables } });
+    previewValue = { ...base, customThemeStore: { schemaVersion: 1, activePresetId: preset.id, items } };
+    return apply();
+  };
+  const restore = () => { previewValue = null; return apply(); };
+  const getComputedPalette = () => {
+    const computed = windowRef?.getComputedStyle?.(host);
+    const hex = value => Math.round(value).toString(16).padStart(2, '0');
+    // 半透明颜色保留 alpha（8 位 HEX），否则复制主题会把半透明色变成不透明色。
+    const toHex = parsed => parsed?.rgb ? '#' + parsed.rgb.map(hex).join('') + (parsed.alpha < 1 ? hex(Math.max(0, parsed.alpha) * 255) : '') : '';
+    const result = {};
+    for (const key of CUSTOM_THEME_VARIABLES) {
+      const cssName = '--' + key.replace(/[A-Z]/gu, letter => '-' + letter.toLowerCase());
+      const raw = text(computed?.getPropertyValue?.(cssName)) || text(host?.style?.getPropertyValue?.(cssName)) || text(current?.palette?.[key]);
+      const parsed = cssColor(documentRef, raw) ?? cssColor(documentRef, current?.palette?.[key]);
+      result[key] = toHex(parsed) || '#ffffff';
+    }
+    return result;
+  };
   const Observer = windowRef?.MutationObserver ?? globalThis.MutationObserver;
-  const observer = typeof Observer === 'function' && documentRef?.documentElement ? new Observer(() => { if ((settings?.get?.() ?? settings)?.appearanceTheme === 'auto') apply(); }) : null;
+  const observer = typeof Observer === 'function' && documentRef?.documentElement ? new Observer(() => {
+    const value = previewValue ?? savedValue();
+    if (value.appearanceTheme === 'auto' || hasDynamicHostTheme(value)) apply();
+  }) : null;
   observer?.observe?.(documentRef.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
   const media = windowRef?.matchMedia?.('(prefers-color-scheme: light)');
-  const onSystem = () => { const value = settings?.get?.() ?? settings ?? {}; if (value.appearanceTheme === 'auto' && !resolveAppearance({ value, documentRef, windowRef }).hasHostSignal) apply(); };
+  const onSystem = () => {
+    const value = previewValue ?? savedValue();
+    if (value.appearanceTheme === 'auto' && !resolveAppearance({ value, documentRef, windowRef }).hasHostSignal) apply();
+  };
   media?.addEventListener?.('change', onSystem);
   apply();
-  return Object.freeze({ apply, getState: () => current, destroy() { destroyed = true; observer?.disconnect?.(); media?.removeEventListener?.('change', onSystem); } });
+  return Object.freeze({
+    apply, preview, restore, getComputedPalette, getState: () => current,
+    destroy() {
+      if (destroyed) return;
+      previewValue = null; destroyed = true;
+      observer?.disconnect?.(); media?.removeEventListener?.('change', onSystem);
+    },
+  });
 }

@@ -230,6 +230,18 @@ test('外观模块内联选择即存并即时应用；程序设置同步标签�
   assert.equal(node.find(n => n.tagName === 'label' && n.children[0]?.textContent === '字体 family'), undefined);
 });
 
+test('外观设置缺少 appearance 控制器时跳过自定义主题区，dispose 可安全调用；提供控制器时才渲染', () => {
+  const settings = { get: () => ({ appearanceTheme: 'auto', appearanceScale: 1, appearanceFontCssUrl: '', customThemeStore: { schemaVersion: 1, activePresetId: null, items: [] } }), update: patch => patch };
+  const bare = createAppearanceSettings({ settings, documentRef, applyAppearance() {} });
+  assert.equal(bare.node.find(n => n.className === 'qqj-theme-manager'), undefined, '无控制器时不渲染主题管理区');
+  assert.doesNotThrow(() => bare.dispose?.());
+  const appearance = { apply() {}, getState: () => ({ palette: {} }), getComputedPalette: () => ({}), preview() {}, restore() {} };
+  const full = createAppearanceSettings({ settings, documentRef, applyAppearance() {}, appearance, overlayRoot: documentRef.createElement('div') });
+  assert.ok(full.node.find(n => n.className === 'qqj-theme-manager'), '提供控制器时渲染主题管理区');
+  assert.equal(typeof full.dispose, 'function');
+  full.dispose();
+});
+
 test('外观设置的两个楼层卡片开关分别保存并立即应用', async () => {
   const current = { appearanceTheme: 'auto', appearanceScale: 1, appearanceFontCssUrl: '', inlineRecallVisible: true, inlineMemoryVisible: true };
   const patches = []; let applied = 0;
